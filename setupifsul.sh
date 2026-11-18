@@ -166,6 +166,29 @@ identidade() {
     fi
 }
 
+# O instalador do Ubuntu grava /etc/netplan/00-installer-config.yaml com dhcp4: true.
+# Quando o IP é definido à mão (GNOME/nmcli), o NetworkManager grava 90-NM-*.yaml, e o
+# netplan JUNTA os dois: a conexão vira "automática + endereço fixo". Sem servidor DHCP,
+# a placa cai no reboot ou quando o netplan é regenerado (ex.: atualização do netplan).
+# Retira os arquivos do instalador/cloud-init (com backup); o NetworkManager passa a ser
+# a única fonte: IP manual fica manual, e sem IP manual ele usa DHCP normalmente.
+rede() {
+    grep -qs 'renderer: NetworkManager' /etc/netplan/*.yaml || {
+        echo "Netplan não usa o NetworkManager: configuração de rede não alterada."; return 0; }
+    local bkp=/var/lib/setupifsul/netplan-backup f mudou=0
+    mkdir -p "$bkp"
+    for f in /etc/netplan/00-installer-config.yaml /etc/netplan/50-cloud-init.yaml; do
+        [ -f "$f" ] || continue
+        echo "Movendo $f para $bkp/"
+        mv "$f" "$bkp/" && mudou=1
+    done
+    if [ -d /etc/cloud ]; then
+        echo "network: {config: disabled}" > /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+    fi
+    # Só regera os arquivos; a mudança vale no próximo boot (não derruba a rede agora)
+    [ $mudou -eq 0 ] || netplan generate
+}
+
 # Snaps em segundo plano: baixam enquanto o apt trabalha
 snaps_inicia() {
     (
@@ -478,6 +501,7 @@ limpeza_final() {
 # ----------------------------------------------------------------------------
 passo "Identidade da máquina (clone)"       identidade
 passo "Senha do root"                       senha_root
+passo "Rede (IP manual não volta a DHCP)"   rede
 snaps_inicia
 passo "Atualização do sistema"              apt_base
 passo "Remoção de pacotes desnecessários"   apt_remover
