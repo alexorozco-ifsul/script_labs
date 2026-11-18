@@ -345,8 +345,14 @@ python_ia() {
     [ -x /opt/ia/bin/python ] || uv venv --python 3.13 /opt/ia || return 1
     uv pip install --python /opt/ia/bin/python "${IA_PACOTES[@]}" &&
     # PyTorch só CPU: a versão padrão traz vários GB de bibliotecas CUDA
-    uv pip install --python /opt/ia/bin/python torch --index-url https://download.pytorch.org/whl/cpu &&
-    ln -sf /opt/ia/bin/python /usr/local/bin/python-ia
+    uv pip install --python /opt/ia/bin/python torch --index-url https://download.pytorch.org/whl/cpu || return 1
+    # python-ia: script (não link simbólico). O Python acha o ambiente virtual pelo
+    # caminho por onde é chamado; via link em /usr/local/bin ele ignorava o /opt/ia
+    # e as bibliotecas não eram encontradas (testado na VM).
+    rm -f /usr/local/bin/python-ia
+    printf '#!/bin/sh\nexec /opt/ia/bin/python "$@"\n' > /usr/local/bin/python-ia
+    chmod 755 /usr/local/bin/python-ia
+    /usr/local/bin/python-ia -c 'import sklearn, matplotlib, pandas, seaborn, torch, tensorflow' 2>/dev/null
 }
 
 docker_instalar() {
@@ -454,10 +460,15 @@ visual() {
     if id "$ADMIN" >/dev/null 2>&1; then
         local f=/var/lib/AccountsService/users/$ADMIN
         mkdir -p /var/lib/AccountsService/users
-        grep -q '^SystemAccount=true' "$f" 2>/dev/null || {
-            grep -q '^\[User\]' "$f" 2>/dev/null || echo "[User]" >> "$f"
-            sed -i '/^\[User\]/a SystemAccount=true' "$f"
-        }
+        # O AccountsService grava SystemAccount=false sozinho; e com a chave repetida
+        # vale a última. Então remove todas e grava uma só, logo após [User].
+        touch "$f"
+        sed -i '/^SystemAccount=/d' "$f"
+        if ! grep -q '^\[User\]' "$f"; then
+            if [ -s "$f" ]; then sed -i '1i [User]' "$f"; else echo "[User]" > "$f"; fi
+        fi
+        sed -i '/^\[User\]/a SystemAccount=true' "$f"
+        [ "$(grep -c '^SystemAccount=' "$f")" -eq 1 ] || return 1
     fi
 }
 
