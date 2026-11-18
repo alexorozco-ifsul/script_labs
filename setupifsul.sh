@@ -1,204 +1,516 @@
-#Arquivos de apoio (desktop, wallpaper, chave SSH, defaults, Veyon)
-REPO="https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main"
+#!/bin/bash
+# =============================================================================
+# setupifsul.sh - Configuração das máquinas dos laboratórios do IFSul
+# Alvo: Ubuntu 26.04 LTS (resolute), amd64
+#
+# Fluxo previsto:
+#   1. Rodar este script UMA vez na máquina-template (faz os downloads pesados).
+#   2. A TI clona a template para as máquinas do laboratório.
+#   3. Em cada máquina, o laboratorista define nome e IP (conforme a posição do
+#      PC) e roda o script de novo: ele gera machine-id e chaves SSH novos (clone),
+#      define a senha do root e pula o que já existe.
+#
+# Uso:   wget -qO setupifsul.sh https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main/setupifsul.sh
+#        sudo bash setupifsul.sh
+#        (opcional) sudo ROOT_PASS='senha' bash setupifsul.sh  -> sem perguntas
+#
+# O script pode ser executado novamente na mesma máquina: cada etapa verifica o
+# que já foi feito. Uma etapa que falha não interrompe as outras; no final é
+# mostrado um resumo com as falhas. Log completo em /var/log/setupifsul.log
+# =============================================================================
 
-#Baixa um arquivo do repositório: baixar <arquivo> <destino>
-baixar() {
-    wget -q "$REPO/$1" -O "$2" || echo "ERRO ao baixar $1"
+set -uo pipefail
+
+# ----------------------------------------------------------------------------
+# Configurações
+# ----------------------------------------------------------------------------
+REPO="https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main"
+ALUNO="alunoinfo"                 # usuário dos alunos (home limpa a cada sessão)
+ADMIN="ifsul"                     # usuário administrador (escondido da tela de login)
+SWAP_GB=20                        # tamanho do /swapfile adicional
+
+PT_URL="https://www.dropbox.com/scl/fi/4yn88h3o8ihbiodj3twme/CiscoPacketTracer_901_Ubuntu_64bit.deb?rlkey=p80dod2n2jg2mgq74sgstg0vt&st=tuehpkz6&dl=1"
+PT_SHA256="3683dd87e779885372ae9a35c1a6e594d12f493e649e7c697408729c1459479b"
+
+STS_VER="5.4.0.RELEASE"
+STS_URL="https://cdn.spring.io/spring-tools/release/dist/${STS_VER}/e4.41/spring-tools-for-eclipse-${STS_VER}-e4.41.0-linux.gtk.x86_64.tar.gz"
+
+BRMODELO_URL="https://github.com/chcandido/brModelo/releases/download/3.31/brModelo.jar"
+BRMODELO_ICON="https://github.com/chcandido/brModelo/raw/master/src/imagens/icone.png"
+
+# update-notifier (avisos de atualização) e não update-manager: o update-manager é
+# dependência do ubuntu-desktop-minimal, e removê-lo derruba o metapacote do desktop
+APT_REMOVER=(gnome-initial-setup totem showtime update-notifier apport apport-gtk)
+
+APT_INSTALAR=(
+    default-jdk uidmap libreoffice virtualbox vlc git curl wget rsync
+    net-tools traceroute nmap openssh-server
+    mysql-server apache2 php libapache2-mod-php php-mysql
+    python3-pip python3-venv
+)
+
+# "nome|opções" - instalados em segundo plano, em paralelo com o resto
+SNAPS=(
+    "eclipse|--classic"
+    "node|--classic --channel=26/stable"        # canal latest do snap node está vazio
+    "android-studio|--classic"
+    "code|--classic"
+    "mysql-workbench-community|"
+    "arduino|--channel=2/stable"                # latest ainda é a IDE 1.8.19
+    "postman|"
+    "blender|--classic"
+    "blockbench-snapcraft|"
+    "intellij-idea-community|--classic"
+)
+
+IA_PACOTES=(scikit-learn matplotlib pandas seaborn tensorflow ipykernel)
+
+# ----------------------------------------------------------------------------
+# Infraestrutura
+# ----------------------------------------------------------------------------
+LOG=/var/log/setupifsul.log
+SNAP_LOG=/var/log/setupifsul-snaps.log
+FALHAS=()
+TMP=""
+
+msg()  { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
+aviso(){ printf '\033[1;33m[AVISO]\033[0m %s\n' "$*"; }
+
+# passo "descrição" comando [args...]  -> executa, registra e segue em frente
+passo() {
+    local desc=$1; shift
+    msg "$desc"
+    if "$@"; then
+        echo "[OK] $desc"
+    else
+        echo "[FALHA] $desc"
+        FALHAS+=("$desc")
+    fi
 }
 
-#Passwd root
-passwd root
+# baixa <url> <destino>  (com novas tentativas)
+baixa() {
+    wget -q --tries=5 --waitretry=5 --timeout=60 "$1" -O "$2.part" && mv "$2.part" "$2"
+}
 
-#Update
-apt update
+# baixa um arquivo deste repositório
+baixa_repo() { baixa "$REPO/$1" "$2"; }
 
-#Packet Tracer 9.0.1 (AppImage empacotado em .deb; depende de libfuse2, já resolvido pelo apt)
-wget 'https://www.dropbox.com/scl/fi/4yn88h3o8ihbiodj3twme/CiscoPacketTracer_901_Ubuntu_64bit.deb?rlkey=p80dod2n2jg2mgq74sgstg0vt&st=tuehpkz6&dl=1' -O CiscoPacketTracer_901_Ubuntu_64bit.deb
-apt install -y ./CiscoPacketTracer_901_Ubuntu_64bit.deb
-rm CiscoPacketTracer_901_Ubuntu_64bit.deb
+apt_get() {
+    DEBIAN_FRONTEND=noninteractive apt-get -y \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+        -o DPkg::Lock::Timeout=600 "$@"
+}
 
-#Spring Tools for Eclipse 5.4.0
-wget "https://cdn.spring.io/spring-tools/release/dist/5.4.0.RELEASE/e4.41/spring-tools-for-eclipse-5.4.0.RELEASE-e4.41.0-linux.gtk.x86_64.tar.gz"
-tar -xvf spring-tools-for-eclipse-5.4.0.RELEASE-e4.41.0-linux.gtk.x86_64.tar.gz -C /opt/
-rm spring-tools-for-eclipse-5.4.0.RELEASE-e4.41.0-linux.gtk.x86_64.tar.gz
-cat <<EOT | tee /usr/share/applications/sts-5.4.0.RELEASE.desktop
+como_aluno() { runuser -u "$ALUNO" -- "$@"; }
+
+# ----------------------------------------------------------------------------
+# Verificações iniciais
+# ----------------------------------------------------------------------------
+if [ "$EUID" -ne 0 ]; then
+    echo "Execute como root: sudo bash $0"
+    exit 1
+fi
+
+. /etc/os-release
+if [ "${VERSION_ID:-}" != "26.04" ]; then
+    aviso "Este script foi feito para o Ubuntu 26.04 (detectado: ${PRETTY_NAME:-desconhecido})."
+    read -r -p "Continuar mesmo assim? [s/N] " r
+    [[ "$r" =~ ^[sS]$ ]] || exit 1
+fi
+
+if ! wget -q --spider --timeout=15 "$REPO/setupifsul.sh"; then
+    echo "Sem acesso a $REPO - verifique a rede."
+    exit 1
+fi
+
+# Senha do root: pergunta antes de tudo para o resto rodar sem interação
+if [ -z "${ROOT_PASS:-}" ]; then
+    while true; do
+        read -r -s -p "Nova senha do root: " ROOT_PASS; echo
+        read -r -s -p "Repita a senha: " r; echo
+        [ -n "$ROOT_PASS" ] && [ "$ROOT_PASS" = "$r" ] && break
+        echo "As senhas não conferem ou estão vazias. Tente de novo."
+    done
+fi
+
+exec > >(tee -a "$LOG") 2>&1
+echo "===== setupifsul.sh - início: $(date) ====="
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+# ----------------------------------------------------------------------------
+# Etapas
+# ----------------------------------------------------------------------------
+senha_root() { echo "root:$ROOT_PASS" | chpasswd; }
+
+# Máquinas clonadas saem com o mesmo machine-id e as mesmas chaves de host do SSH.
+# Gera novos sempre que o hardware (UUID da placa/VM) for diferente do registrado
+# na última execução. Nome e IP não são alterados: o laboratorista define conforme
+# a posição do PC no laboratório.
+identidade() {
+    local estado=/var/lib/setupifsul uuid
+    uuid=$(cat /sys/class/dmi/id/product_uuid 2>/dev/null || echo desconhecido)
+    mkdir -p "$estado"
+    if [ "$(cat "$estado/uuid" 2>/dev/null)" != "$uuid" ]; then
+        echo "Hardware novo (clone): gerando machine-id e chaves SSH de host."
+        rm -f /etc/machine-id /var/lib/dbus/machine-id
+        systemd-machine-id-setup || return 1
+        ln -sf /etc/machine-id /var/lib/dbus/machine-id
+        rm -f /etc/ssh/ssh_host_*
+        ssh-keygen -A || return 1
+        echo "$uuid" > "$estado/uuid"
+    else
+        echo "Mesma máquina da última execução: identidade mantida."
+    fi
+}
+
+# Snaps em segundo plano: baixam enquanto o apt trabalha
+snaps_inicia() {
+    (
+        snap wait system seed.loaded
+        for item in "${SNAPS[@]}"; do
+            nome=${item%%|*}; opts=${item#*|}
+            if snap list "$nome" >/dev/null 2>&1; then
+                echo "[OK] snap $nome (já instalado)"
+                continue
+            fi
+            # Até 3 tentativas: o apt pode atualizar o snapd ao mesmo tempo e
+            # reiniciá-lo no meio de uma instalação
+            for t in 1 2 3; do
+                snap install "$nome" $opts && break
+                echo "snap $nome falhou (tentativa $t/3)"; sleep 30
+            done
+            if snap list "$nome" >/dev/null 2>&1; then
+                echo "[OK] snap $nome"
+            else
+                echo "[FALHA] snap $nome"
+            fi
+        done
+        snap remove snap-store 2>/dev/null
+        echo "[FIM]"
+    ) > "$SNAP_LOG" 2>&1 &
+    SNAP_PID=$!
+}
+
+apt_base() {
+    apt_get update && apt_get full-upgrade
+}
+
+apt_remover() {
+    local instalados=()
+    for p in "${APT_REMOVER[@]}"; do
+        dpkg -s "$p" >/dev/null 2>&1 && instalados+=("$p")
+    done
+    [ ${#instalados[@]} -eq 0 ] || apt_get purge "${instalados[@]}"
+}
+
+apt_instalar() {
+    apt_get install "${APT_INSTALAR[@]}"
+}
+
+# PPA separado: se o Launchpad estiver fora do ar (já aconteceu: 503), só o Veyon
+# falha, e o script tenta de novo algumas vezes antes de desistir
+veyon_instalar() {
+    dpkg -s veyon >/dev/null 2>&1 && return 0
+    add-apt-repository -y -n ppa:veyon/stable || return 1
+    for t in 1 2 3 4 5; do
+        apt_get update
+        apt-cache policy veyon | grep -q 'Candidat[eo]: [0-9]' && break
+        echo "PPA do Veyon indisponível (tentativa $t/5), aguardando 60 s..."
+        sleep 60
+    done
+    apt_get install veyon
+}
+
+packet_tracer() {
+    if dpkg -s packettracer >/dev/null 2>&1 &&
+       [ "$(dpkg-query -W -f='${Version}' packettracer)" = "9.0.1" ]; then
+        echo "Packet Tracer 9.0.1 já instalado."; return 0
+    fi
+    baixa "$PT_URL" "$TMP/pt.deb" || return 1
+    if ! echo "$PT_SHA256  $TMP/pt.deb" | sha256sum -c -; then
+        echo "SHA-256 do Packet Tracer não confere - arquivo alterado ou corrompido."
+        return 1
+    fi
+    apt_get install "$TMP/pt.deb"
+}
+
+spring_tools() {
+    local dir=/opt/sts-$STS_VER
+    if [ ! -x "$dir/SpringToolsForEclipse" ]; then
+        baixa "$STS_URL" "$TMP/sts.tar.gz" &&
+        tar -xzf "$TMP/sts.tar.gz" -C /opt/ || return 1
+    fi
+    # Remove atalhos e versões antigas (o script antigo usava sts-<versão>.desktop)
+    rm -f /usr/share/applications/sts-*.desktop
+    for d in /opt/sts-*; do [ "$d" != "$dir" ] && [ -d "$d" ] && rm -rf "$d"; done
+    cat > /usr/share/applications/spring-tools.desktop <<EOT
 [Desktop Entry]
 Name=Spring Tools for Eclipse
-Exec=/opt/sts-5.4.0.RELEASE/SpringToolsForEclipse %u
-Icon=/opt/sts-5.4.0.RELEASE/icon.xpm
+Exec=$dir/SpringToolsForEclipse %u
+Icon=$dir/icon.xpm
 Type=Application
 Categories=Development;IDE;
 MimeType=x-scheme-handler/eclipse+command;x-scheme-handler/eclipse+mpc;
 EOT
+}
 
-#JDK padrão do Ubuntu (default-jdk -> OpenJDK 25 no 26.04)
-apt install -y default-jdk
+brmodelo() {
+    mkdir -p /opt/brmodelo &&
+    baixa "$BRMODELO_URL" /opt/brmodelo/brmodelo.jar &&
+    baixa "$BRMODELO_ICON" /opt/brmodelo/icon.png &&
+    baixa_repo brmodelo.desktop /usr/share/applications/brmodelo.desktop
+}
 
-#Remove Packages
-apt auto-remove -y \
-    gnome-initial-setup \
-    gnome-startup-applications \
-    totem \
-    unattended-upgrades \
-    update-manager \
-    apport \
-    apport-gtk
+veyon_config() {
+    command -v veyon-cli >/dev/null || { echo "Veyon não instalado."; return 1; }
+    baixa_repo aluno-veyon-config.json "$TMP/veyon.json" &&
+    baixa_repo professor_public_key.pem "$TMP/professor.pem" &&
+    veyon-cli config import "$TMP/veyon.json" || return 1
+    veyon-cli authkeys list 2>/dev/null | grep -q '^professor/public' ||
+        veyon-cli authkeys import professor/public "$TMP/professor.pem" || return 1
+    # Master e Configurator escondidos dos usuários comuns (mantido após atualizações)
+    for f in veyon-master veyon-configurator; do
+        dpkg-statoverride --list "/usr/share/applications/$f.desktop" >/dev/null ||
+            dpkg-statoverride --update --add root root 0640 "/usr/share/applications/$f.desktop"
+    done
+    systemctl enable --now veyon.service
+    # Obs.: o WaylandEnable=false do antigo playbook NÃO é usado: o Ubuntu 26.04 não tem
+    # sessão Xorg, e o Veyon 4.11 tem suporte (experimental) a Wayland
+}
 
-#Install packages
-apt install -y \
-    uidmap \
-    libreoffice \
-    virtualbox \
-    vlc \
-    git \
-    curl \
-    net-tools \
-    openssh-server \
-    nmap \
-    mysql-server \
-    apache2 \
-    php \
-    libapache2-mod-php \
-    php-mysql \
-    python3-pip \
-    traceroute
+# Python 3.13 compartilhado: o TensorFlow ainda não suporta o Python 3.14 do sistema
+python_ia() {
+    export UV_PYTHON_INSTALL_DIR=/opt/ia-python
+    command -v uv >/dev/null ||
+        curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh || return 1
+    [ -x /opt/ia/bin/python ] || uv venv --python 3.13 /opt/ia || return 1
+    uv pip install --python /opt/ia/bin/python "${IA_PACOTES[@]}" &&
+    # PyTorch só CPU: a versão padrão traz vários GB de bibliotecas CUDA
+    uv pip install --python /opt/ia/bin/python torch --index-url https://download.pytorch.org/whl/cpu &&
+    ln -sf /opt/ia/bin/python /usr/local/bin/python-ia
+}
 
-#Veyon (PPA oficial)
-add-apt-repository -y ppa:veyon/stable
-apt install -y veyon
-
-#Veyon - configuração de aluno (antigo linux-configure_aluno.yml)
-VEYON_TMP=$(mktemp -d)
-baixar aluno-veyon-config.json "$VEYON_TMP"/aluno-veyon-config.json
-baixar professor_public_key.pem "$VEYON_TMP"/professor_public_key.pem
-veyon-cli config import "$VEYON_TMP"/aluno-veyon-config.json
-veyon-cli authkeys import professor/public "$VEYON_TMP"/professor_public_key.pem
-rm -rf "$VEYON_TMP"
-systemctl enable veyon.service
-#Esconde o Veyon Master e o Configurator dos usuários comuns (dpkg-statoverride mantém após atualizações do pacote)
-for f in veyon-master veyon-configurator; do
-    dpkg-statoverride --update --add root root 0640 /usr/share/applications/$f.desktop
-done
-#Obs.: o custom.conf do playbook (WaylandEnable=false) NÃO é usado: o Ubuntu 26.04 não tem sessão Xorg,
-#e o Veyon 4.11 já tem suporte (experimental) a Wayland
-
-#Remove Snap Store
-snap remove snap-store
-
-#brModelo
-mkdir /opt/brmodelo
-wget https://github.com/chcandido/brModelo/releases/download/3.31/brModelo.jar -O /opt/brmodelo/brmodelo.jar
-wget https://github.com/chcandido/brModelo/raw/master/src/imagens/icone.png -O /opt/brmodelo/icon.png
-baixar brmodelo.desktop /usr/share/applications/brmodelo.desktop
-
-#Eclipse
-snap install eclipse --classic
-
-#NodeJS 26 (LTS) - o canal "latest" do snap node está vazio, é preciso fixar o canal
-snap install node --classic --channel=26/stable
-
-#Android Studio
-snap install android-studio --classic
-
-#Visual Studio Code
-snap install code --classic
-
-#MySQL Workbench
-snap install mysql-workbench-community
-
-#Arduino IDE 2 (o canal "latest" ainda é a IDE 1.8.19 antiga)
-snap install arduino --channel=2/stable
-
-#Postman
-snap install postman
-
-#Blender
-snap install blender --classic
-
-#Blockbench
-snap install blockbench-snapcraft
-
-#IntelliJ IDEA Community Edition
-snap install intellij-idea-community --classic
-
-#SSH config
-systemctl enable ssh --now
-echo PasswordAuthentication no | tee -a /etc/ssh/sshd_config
-echo PermitRootLogin without-password | tee -a /etc/ssh/sshd_config
-echo AllowUsers root | sudo tee -a /etc/ssh/sshd_config
-
-#MySQL config
-systemctl enable mysql --now
-# MySQL 8.4 (Ubuntu 26.04) não carrega mais o mysql_native_password por padrão
-mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY 'root';"
-snap connect mysql-workbench-community:password-manager-service :password-manager-service
-
-#Create alunoinfo User
-useradd -s /bin/bash -d /home/alunoinfo -m alunoinfo
-echo "alunoinfo:alunoinfo" | chpasswd
-
-#Reset alunoinfo crontab job
-echo '@reboot echo "alunoinfo:alunoinfo" | chpasswd && usermod -c "alunoinfo" alunoinfo && rm -f /var/lib/AccountsService/icons/alunoinfo' | crontab -
-
-#Firefox Desktop
-sudo -u alunoinfo mkdir -p /home/alunoinfo/.local/share
-mkdir /home/alunoinfo/.local/share/applications
-baixar firefox_firefox.desktop /home/alunoinfo/.local/share/applications/firefox_firefox.desktop
-
-#SSH Key
-mkdir -p /root/.ssh
-baixar ifsul_labs.pub /root/.ssh/authorized_keys
-chmod 700 /root/.ssh
-chmod 600 /root/.ssh/authorized_keys
-
-#Apache permissions
-chmod 777 -R /var/www/html
-
-#Defaults
-baixar defaultsifsul.sh /etc/profile.d/defaultsifsul.sh
-
-#Wallpaper
-baixar ifsul.png /usr/share/backgrounds/ifsul.png
-
-#Upgrade
-apt upgrade -y
-
-#Hide User ifsul
-echo -e "[User]\nSystemAccount=true" | tee -a /var/lib/AccountsService/users/ifsul
-
-#Install Docker
-curl -fsSL get.docker.com | bash
-
-#Fix alunoinfo Docker permissions
-cat <<EOT | tee "/etc/apparmor.d/home.alunoinfo.bin.rootlesskit"
-# ref: https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces
+docker_instalar() {
+    if ! command -v docker >/dev/null; then
+        curl -fsSL https://get.docker.com -o "$TMP/get-docker.sh" && sh "$TMP/get-docker.sh" || return 1
+    fi
+    # AppArmor: libera user namespaces só para o /usr/bin/rootlesskit (dono root)
+    cat > /etc/apparmor.d/usr.bin.rootlesskit <<'EOT'
 abi <abi/4.0>,
 include <tunables/global>
 
-/home/alunoinfo/bin/rootlesskit flags=(unconfined) {
+/usr/bin/rootlesskit flags=(unconfined) {
   userns,
 
   # Site-specific additions and overrides. See local/README for details.
-  include if exists <local/home.alunoinfo.bin.rootlesskit>
+  include if exists <local/usr.bin.rootlesskit>
 }
 EOT
-systemctl restart apparmor.service
+    apparmor_parser -r /etc/apparmor.d/usr.bin.rootlesskit
+}
 
-#Install rootless docker for alunoinfo
-sudo -H -u alunoinfo bash -c 'curl -fsSL https://get.docker.com/rootless | bash'
+usuario_aluno() {
+    id "$ALUNO" >/dev/null 2>&1 || useradd -m -s /bin/bash -c "$ALUNO" "$ALUNO" || return 1
+    echo "$ALUNO:$ALUNO" | chpasswd
+    usermod -aG dialout "$ALUNO"
+    id "$ADMIN" >/dev/null 2>&1 && usermod -aG dialout "$ADMIN"
+    # Atalho do Firefox (janela privativa) - vai para o modelo da home
+    runuser -u "$ALUNO" -- mkdir -p "/home/$ALUNO/.local/share/applications"
+    baixa_repo firefox_firefox.desktop "/home/$ALUNO/.local/share/applications/firefox_firefox.desktop" &&
+    chown "$ALUNO:$ALUNO" "/home/$ALUNO/.local/share/applications/firefox_firefox.desktop" || return 1
+    # Packet Tracer 9: a "ativação" (menu, ícones, arquivos .pkt) é por usuário, em ~/.local.
+    # O postinst só ativa para quem rodou o sudo; aqui ativa para o aluno (vai para o modelo da home).
+    # DEBIAN_FRONTEND=noninteractive aceita a EULA sem abrir o leitor de texto.
+    # SUDO_USER precisa ser removido: o pt-manage.sh usa essa variável para decidir
+    # a home, e sem isso ativaria na home de quem rodou o sudo (testado na VM).
+    if [ -x /usr/local/bin/packettracer ]; then
+        (cd / && como_aluno env -u SUDO_USER -u SUDO_UID -u SUDO_GID DEBIAN_FRONTEND=noninteractive \
+            /usr/local/bin/packettracer --pt-activate </dev/null)
+        [ -f "/home/$ALUNO/.local/share/applications/CiscoPacketTracer-9.0.1.desktop" ] || return 1
+    fi
+}
 
-#Change owner of /home/alunoinfo/bin directory to root
-chown root:root -R /home/alunoinfo/bin
+docker_rootless_aluno() {
+    local uid; uid=$(id -u "$ALUNO")
+    [ -f "/home/$ALUNO/.config/systemd/user/docker.service" ] && return 0
+    loginctl enable-linger "$ALUNO"
+    for _ in $(seq 1 30); do [ -S "/run/user/$uid/bus" ] && break; sleep 1; done
+    runuser -u "$ALUNO" -- env XDG_RUNTIME_DIR="/run/user/$uid" \
+        DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+        dockerd-rootless-setuptool.sh install
+    local r=$?
+    como_aluno docker context use rootless
+    loginctl disable-linger "$ALUNO"
+    return $r
+}
 
-#Usermod alunoinfo dialout
-usermod -a -G dialout alunoinfo
+ssh_config() {
+    mkdir -p /root/.ssh && chmod 700 /root/.ssh &&
+    baixa_repo ifsul_labs.pub /root/.ssh/authorized_keys &&
+    chmod 600 /root/.ssh/authorized_keys || return 1
+    # Arquivo próprio em sshd_config.d (vale antes do sshd_config principal)
+    cat > /etc/ssh/sshd_config.d/10-ifsul.conf <<'EOT'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+AllowUsers root
+EOT
+    sshd -t || return 1
+    systemctl enable ssh && systemctl try-reload-or-restart ssh
+}
 
-#Usermod ifsul dialout
-usermod -a -G dialout ifsul
+mysql_config() {
+    systemctl enable --now mysql || return 1
+    # Só na primeira vez (root ainda autentica pelo socket). MySQL 8.4 não tem mais mysql_native_password
+    if mysql -uroot -e 'SELECT 1' >/dev/null 2>&1; then
+        mysql -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY 'root';"
+    else
+        mysql -uroot -proot -e 'SELECT 1' >/dev/null 2>&1
+    fi
+}
 
-#Create swap file
-fallocate -l 20G /swapfile
-chmod 600 /swapfile
-mkswap /swapfile
-swapon /swapfile
-echo "/swapfile swap swap defaults 0 0" | tee -a /etc/fstab
+apache_config() {
+    # Aluno e PHP (www-data) podem escrever; os demais usuários não (antes era 777)
+    chown -R "$ALUNO:www-data" /var/www/html &&
+    find /var/www/html -type d -exec chmod 2775 {} + &&
+    find /var/www/html -type f -exec chmod 664 {} +
+}
+
+visual() {
+    baixa_repo ifsul.png /usr/share/backgrounds/ifsul.png &&
+    baixa_repo defaultsifsul.sh /etc/profile.d/defaultsifsul.sh || return 1
+    # Esconde o administrador da tela de login
+    if id "$ADMIN" >/dev/null 2>&1; then
+        local f=/var/lib/AccountsService/users/$ADMIN
+        mkdir -p /var/lib/AccountsService/users
+        grep -q '^SystemAccount=true' "$f" 2>/dev/null || {
+            grep -q '^\[User\]' "$f" 2>/dev/null || echo "[User]" >> "$f"
+            sed -i '/^\[User\]/a SystemAccount=true' "$f"
+        }
+    fi
+}
+
+swap() {
+    [ -f /swapfile ] && return 0
+    fallocate -l "${SWAP_GB}G" /swapfile && chmod 600 /swapfile &&
+    mkswap /swapfile && swapon /swapfile || return 1
+    grep -q '^/swapfile ' /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab
+}
+
+# Home do aluno restaurada de um modelo ao sair da sessão e no boot
+home_limpa() {
+    local uid; uid=$(id -u "$ALUNO")
+    systemctl stop "user@$uid.service"
+    mkdir -p /var/lib/alunoinfo-modelo && chmod 700 /var/lib/alunoinfo-modelo
+    rsync -a --delete --exclude=.local/share/docker "/home/$ALUNO/" /var/lib/alunoinfo-modelo/home/ || return 1
+
+    cat > /usr/local/sbin/limpar-alunoinfo <<EOT
+#!/bin/bash
+# Restaura /home/$ALUNO a partir do modelo (roda como root, fora da sessão)
+ALUNO=$ALUNO
+EOT
+    cat >> /usr/local/sbin/limpar-alunoinfo <<'EOT'
+# Espera a sessão que está saindo terminar; se outra sessão já começou, não mexe
+for i in $(seq 1 30); do
+    STATE=$(loginctl show-user "$ALUNO" -p State --value 2>/dev/null)
+    case "$STATE" in active|online) sleep 1 ;; *) break ;; esac
+done
+case "$STATE" in active|online) exit 0 ;; esac
+systemctl stop "user@$(id -u "$ALUNO").service"
+pkill -KILL -u "$ALUNO"
+rsync -a --delete /var/lib/alunoinfo-modelo/home/ "/home/$ALUNO/"
+crontab -r -u "$ALUNO" 2>/dev/null
+find /tmp /var/tmp /dev/shm -xdev -user "$ALUNO" -delete 2>/dev/null
+# Senha, nome e foto padrão (caso o aluno tenha alterado)
+echo "$ALUNO:$ALUNO" | chpasswd
+usermod -c "$ALUNO" "$ALUNO"
+rm -f "/var/lib/AccountsService/icons/$ALUNO"
+exit 0
+EOT
+    chmod 755 /usr/local/sbin/limpar-alunoinfo
+
+    cat > /etc/systemd/system/limpar-alunoinfo.service <<'EOT'
+[Unit]
+Description=Restaura a home do aluno a partir do modelo
+After=local-fs.target
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/limpar-alunoinfo
+
+[Install]
+WantedBy=multi-user.target
+EOT
+    systemctl daemon-reload && systemctl enable limpar-alunoinfo.service || return 1
+
+    # Gatilho ao sair da sessão gráfica (o GDM 50 não tem mais PostSession; usa PAM)
+    cat > /usr/local/sbin/limpar-alunoinfo-pam <<EOT
+#!/bin/sh
+[ "\$PAM_USER" = "$ALUNO" ] && systemctl start --no-block limpar-alunoinfo.service
+exit 0
+EOT
+    chmod 755 /usr/local/sbin/limpar-alunoinfo-pam
+    grep -q limpar-alunoinfo-pam /etc/pam.d/gdm-password ||
+        echo "session optional pam_exec.so quiet type=close_session /usr/local/sbin/limpar-alunoinfo-pam" >> /etc/pam.d/gdm-password
+    # Substitui o antigo @reboot do crontab do root (agora feito pelo serviço)
+    crontab -l 2>/dev/null | grep -v 'alunoinfo:alunoinfo' | crontab -
+}
+
+snaps_aguarda() {
+    msg "Aguardando os snaps terminarem (log: $SNAP_LOG)"
+    wait "$SNAP_PID"
+    cat "$SNAP_LOG" | grep -E '^\[(OK|FALHA)\]'
+    snap connect mysql-workbench-community:password-manager-service :password-manager-service 2>/dev/null
+    snap connect arduino:raw-usb 2>/dev/null
+    ! grep -q '^\[FALHA\]' "$SNAP_LOG"
+}
+
+limpeza_final() {
+    apt_get autoremove --purge && apt_get clean
+}
+
+# ----------------------------------------------------------------------------
+# Execução
+# ----------------------------------------------------------------------------
+passo "Identidade da máquina (clone)"       identidade
+passo "Senha do root"                       senha_root
+snaps_inicia
+passo "Atualização do sistema"              apt_base
+passo "Remoção de pacotes desnecessários"   apt_remover
+passo "Pacotes do apt (inclui o JDK)"       apt_instalar
+passo "Veyon (PPA)"                         veyon_instalar
+passo "Packet Tracer 9.0.1"                 packet_tracer
+passo "Spring Tools $STS_VER"               spring_tools
+passo "brModelo"                            brmodelo
+passo "Docker"                              docker_instalar
+passo "Python para IA (/opt/ia)"            python_ia
+passo "Usuário $ALUNO"                      usuario_aluno
+passo "Docker rootless do $ALUNO"           docker_rootless_aluno
+passo "Veyon (configuração de aluno)"       veyon_config
+passo "MySQL"                               mysql_config
+passo "Apache (/var/www/html)"              apache_config
+passo "Wallpaper, defaults e login"         visual
+passo "Swap de ${SWAP_GB} GB"               swap
+passo "Snaps"                               snaps_aguarda
+passo "Home do $ALUNO limpa a cada sessão"  home_limpa
+passo "SSH (somente root com chave)"        ssh_config
+passo "Limpeza do apt"                      limpeza_final
+
+# ----------------------------------------------------------------------------
+# Resumo
+# ----------------------------------------------------------------------------
+echo
+echo "===== setupifsul.sh - fim: $(date) ====="
+if [ ${#FALHAS[@]} -eq 0 ]; then
+    msg "Tudo certo. Reinicie a máquina para concluir."
+    exit 0
+else
+    printf '\n\033[1;31mEtapas com FALHA (detalhes em %s):\033[0m\n' "$LOG"
+    printf '  - %s\n' "${FALHAS[@]}"
+    echo "Corrija o problema e execute o script de novo: as etapas já concluídas são puladas."
+    exit 1
+fi

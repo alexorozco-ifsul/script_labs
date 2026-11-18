@@ -1,6 +1,6 @@
 {
     "Authentication": {
-        "Method": "1"
+        "Method": "KeyFileAuthentication"
     },
     "Core": {
         "ApplicationVersion": 9,
