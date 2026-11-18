@@ -1,25 +1,10 @@
-#Arquivos de apoio (desktop, wallpaper, chave SSH, defaults) - repositório privado
-REPO="https://api.github.com/repos/alexorozco-ifsul/script_labs/contents"
-BRANCH="main"
-
-#Token do GitHub (somente leitura): use a variável GITHUB_TOKEN ou digite quando pedido
-if [ -z "$GITHUB_TOKEN" ]; then
-    read -r -s -p "Token do GitHub: " GITHUB_TOKEN
-    echo
-fi
+#Arquivos de apoio (desktop, wallpaper, chave SSH, defaults, Veyon)
+REPO="https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main"
 
 #Baixa um arquivo do repositório: baixar <arquivo> <destino>
 baixar() {
-    wget -q --header="Authorization: Bearer $GITHUB_TOKEN" \
-        --header="Accept: application/vnd.github.raw" \
-        "$REPO/$1?ref=$BRANCH" -O "$2" || echo "ERRO ao baixar $1"
+    wget -q "$REPO/$1" -O "$2" || echo "ERRO ao baixar $1"
 }
-
-#Testa o token antes de começar
-if ! wget -q --spider --header="Authorization: Bearer $GITHUB_TOKEN" "$REPO/setupifsul.sh?ref=$BRANCH"; then
-    echo "Token inválido ou sem acesso ao repositório. Abortando."
-    exit 1
-fi
 
 #Passwd root
 passwd root
