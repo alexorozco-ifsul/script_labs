@@ -172,6 +172,7 @@ identidade() {
 # a placa cai no reboot ou quando o netplan é regenerado (ex.: atualização do netplan).
 # Retira os arquivos do instalador/cloud-init (com backup); o NetworkManager passa a ser
 # a única fonte: IP manual fica manual, e sem IP manual ele usa DHCP normalmente.
+# Em clones, o arquivo do instalador ainda aponta para o MAC da máquina-template.
 rede() {
     grep -qs 'renderer: NetworkManager' /etc/netplan/*.yaml || {
         echo "Netplan não usa o NetworkManager: configuração de rede não alterada."; return 0; }
@@ -185,6 +186,14 @@ rede() {
     if [ -d /etc/cloud ]; then
         echo "network: {config: disabled}" > /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
     fi
+    # Nos laboratórios o IP vem do DHCP com filtro/reserva por MAC: garante que o
+    # cliente DHCP se identifique pelo MAC (já é o padrão do NM; fica explícito para
+    # não depender do machine-id, que muda nos clones)
+    cat > /etc/NetworkManager/conf.d/90-ifsul-dhcp.conf <<'EOT'
+[connection]
+ipv4.dhcp-client-id=mac
+ipv6.dhcp-duid=ll
+EOT
     # Só regera os arquivos; a mudança vale no próximo boot (não derruba a rede agora)
     [ $mudou -eq 0 ] || netplan generate
 }
@@ -501,7 +510,7 @@ limpeza_final() {
 # ----------------------------------------------------------------------------
 passo "Identidade da máquina (clone)"       identidade
 passo "Senha do root"                       senha_root
-passo "Rede (IP manual não volta a DHCP)"   rede
+passo "Rede (netplan e DHCP por MAC)"       rede
 snaps_inicia
 passo "Atualização do sistema"              apt_base
 passo "Remoção de pacotes desnecessários"   apt_remover
