@@ -104,6 +104,15 @@ apt_get() {
 
 como_aluno() { runuser -u "$ALUNO" -- "$@"; }
 
+# saida_contem <padrão> comando [args...]  -> o comando escreve o texto procurado?
+# Não usar "comando | grep -q": com pipefail, o grep -q fecha o pipe ao achar o
+# texto, o comando recebe SIGPIPE e o teste "falha" mesmo tendo encontrado.
+saida_contem() {
+    local padrao=$1 saida; shift
+    saida=$("$@" 2>/dev/null)
+    grep -q -- "$padrao" <<< "$saida"
+}
+
 # ----------------------------------------------------------------------------
 # Verificações iniciais
 # ----------------------------------------------------------------------------
@@ -251,8 +260,8 @@ veyon_instalar() {
     dpkg -s veyon >/dev/null 2>&1 && return 0
     mkdir -p /etc/apt/keyrings
     baixa_repo veyon-ppa.asc /etc/apt/keyrings/veyon-ppa.asc || return 1
-    gpg --show-keys --with-colons /etc/apt/keyrings/veyon-ppa.asc 2>/dev/null |
-        grep -q '^fpr:::::::::4B776B9B1C1938F18C023C8C49ABD150D5D0DCC6:' ||
+    saida_contem '^fpr:::::::::4B776B9B1C1938F18C023C8C49ABD150D5D0DCC6:' \
+        gpg --show-keys --with-colons /etc/apt/keyrings/veyon-ppa.asc ||
         { echo "Chave do PPA do Veyon não confere."; return 1; }
     rm -f /etc/apt/sources.list.d/veyon-ubuntu-stable-*.sources
     cat > /etc/apt/sources.list.d/veyon-ppa.sources <<EOT
@@ -264,7 +273,7 @@ Signed-By: /etc/apt/keyrings/veyon-ppa.asc
 EOT
     for t in 1 2 3 4 5; do
         apt_get update
-        apt-cache policy veyon | grep -q 'Candidat[eo]: [0-9]' && break
+        saida_contem 'Candidat[eo]: [0-9]' apt-cache policy veyon && break
         echo "PPA do Veyon indisponível (tentativa $t/5), aguardando 60 s..."
         sleep 60
     done
@@ -316,7 +325,7 @@ veyon_config() {
     baixa_repo aluno-veyon-config.json "$TMP/veyon.json" &&
     baixa_repo professor_public_key.pem "$TMP/professor.pem" &&
     veyon-cli config import "$TMP/veyon.json" || return 1
-    veyon-cli authkeys list 2>/dev/null | grep -q '^professor/public' ||
+    saida_contem '^professor/public' veyon-cli authkeys list ||
         veyon-cli authkeys import professor/public "$TMP/professor.pem" || return 1
     # Master e Configurator escondidos dos usuários comuns (mantido após atualizações)
     for f in veyon-master veyon-configurator; do
@@ -517,7 +526,7 @@ EOT
         echo "session optional pam_exec.so quiet type=close_session /usr/local/sbin/limpar-alunoinfo-pam" >> /etc/pam.d/gdm-password
     # Substitui o antigo @reboot do crontab do root (agora feito pelo serviço).
     # Só mexe se a linha existir (com crontab vazio o grep -v "falha" e derrubava a etapa)
-    if crontab -l 2>/dev/null | grep -q "$ALUNO:$ALUNO"; then
+    if saida_contem "$ALUNO:$ALUNO" crontab -l; then
         crontab -l | grep -v "$ALUNO:$ALUNO" | crontab -
     fi
     return 0
