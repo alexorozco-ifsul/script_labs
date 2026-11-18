@@ -1,0 +1,3 @@
+# Chaves privadas nunca vão para o repositório
+*private*
+*.key

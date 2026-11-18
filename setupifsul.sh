@@ -78,6 +78,25 @@ apt install -y \
     python3-pip \
     traceroute
 
+#Veyon (PPA oficial)
+add-apt-repository -y ppa:veyon/stable
+apt install -y veyon
+
+#Veyon - configuração de aluno (antigo linux-configure_aluno.yml)
+VEYON_TMP=$(mktemp -d)
+baixar aluno-veyon-config.json "$VEYON_TMP"/aluno-veyon-config.json
+baixar professor_public_key.pem "$VEYON_TMP"/professor_public_key.pem
+veyon-cli config import "$VEYON_TMP"/aluno-veyon-config.json
+veyon-cli authkeys import professor/public "$VEYON_TMP"/professor_public_key.pem
+rm -rf "$VEYON_TMP"
+systemctl enable veyon.service
+#Esconde o Veyon Master e o Configurator dos usuários comuns (dpkg-statoverride mantém após atualizações do pacote)
+for f in veyon-master veyon-configurator; do
+    dpkg-statoverride --update --add root root 0640 /usr/share/applications/$f.desktop
+done
+#Obs.: o custom.conf do playbook (WaylandEnable=false) NÃO é usado: o Ubuntu 26.04 não tem sessão Xorg,
+#e o Veyon 4.11 já tem suporte (experimental) a Wayland
+
 #Remove Snap Store
 snap remove snap-store
 
