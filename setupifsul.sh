@@ -515,8 +515,12 @@ EOT
     chmod 755 /usr/local/sbin/limpar-alunoinfo-pam
     grep -q limpar-alunoinfo-pam /etc/pam.d/gdm-password ||
         echo "session optional pam_exec.so quiet type=close_session /usr/local/sbin/limpar-alunoinfo-pam" >> /etc/pam.d/gdm-password
-    # Substitui o antigo @reboot do crontab do root (agora feito pelo serviço)
-    crontab -l 2>/dev/null | grep -v 'alunoinfo:alunoinfo' | crontab -
+    # Substitui o antigo @reboot do crontab do root (agora feito pelo serviço).
+    # Só mexe se a linha existir (com crontab vazio o grep -v "falha" e derrubava a etapa)
+    if crontab -l 2>/dev/null | grep -q "$ALUNO:$ALUNO"; then
+        crontab -l | grep -v "$ALUNO:$ALUNO" | crontab -
+    fi
+    return 0
 }
 
 snaps_aguarda() {
