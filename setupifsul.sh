@@ -243,10 +243,25 @@ apt_instalar() {
 }
 
 # PPA separado: se o Launchpad estiver fora do ar (já aconteceu: 503), só o Veyon
-# falha, e o script tenta de novo algumas vezes antes de desistir
+# falha, e o script tenta de novo algumas vezes antes de desistir.
+# O repositório é gravado direto, com a chave do PPA vinda deste repositório
+# (fingerprint 4B776B9B1C1938F18C023C8C49ABD150D5D0DCC6, conferida no Launchpad):
+# o add-apt-repository depende da API do Launchpad, que falhou nos testes.
 veyon_instalar() {
     dpkg -s veyon >/dev/null 2>&1 && return 0
-    add-apt-repository -y -n ppa:veyon/stable || return 1
+    mkdir -p /etc/apt/keyrings
+    baixa_repo veyon-ppa.asc /etc/apt/keyrings/veyon-ppa.asc || return 1
+    gpg --show-keys --with-colons /etc/apt/keyrings/veyon-ppa.asc 2>/dev/null |
+        grep -q '^fpr:::::::::4B776B9B1C1938F18C023C8C49ABD150D5D0DCC6:' ||
+        { echo "Chave do PPA do Veyon não confere."; return 1; }
+    rm -f /etc/apt/sources.list.d/veyon-ubuntu-stable-*.sources
+    cat > /etc/apt/sources.list.d/veyon-ppa.sources <<EOT
+Types: deb
+URIs: https://ppa.launchpadcontent.net/veyon/stable/ubuntu/
+Suites: ${VERSION_CODENAME}
+Components: main
+Signed-By: /etc/apt/keyrings/veyon-ppa.asc
+EOT
     for t in 1 2 3 4 5; do
         apt_get update
         apt-cache policy veyon | grep -q 'Candidat[eo]: [0-9]' && break
@@ -329,19 +344,31 @@ docker_instalar() {
     if ! command -v docker >/dev/null; then
         curl -fsSL https://get.docker.com -o "$TMP/get-docker.sh" && sh "$TMP/get-docker.sh" || return 1
     fi
-    # AppArmor: libera user namespaces só para o /usr/bin/rootlesskit (dono root)
-    cat > /etc/apparmor.d/usr.bin.rootlesskit <<'EOT'
+    # AppArmor: o Ubuntu 26.04 já traz /etc/apparmor.d/rootlesskit, que libera user
+    # namespaces para /usr/bin/rootlesskit (dono root). NÃO criar outro perfil para o
+    # mesmo executável: dois perfis no mesmo caminho fazem o kernel negar a execução
+    # ("fork/exec /proc/self/exe: permission denied" - testado na VM).
+    # Remove perfis extras (do script antigo ou da documentação do Docker).
+    for p in /etc/apparmor.d/usr.bin.rootlesskit /etc/apparmor.d/home.alunoinfo.bin.rootlesskit; do
+        [ -f "$p" ] || continue
+        apparmor_parser -R "$p" 2>/dev/null
+        rm -f "$p"
+    done
+    if [ -f /etc/apparmor.d/rootlesskit ]; then
+        apparmor_parser -r /etc/apparmor.d/rootlesskit
+    else
+        # Ubuntu sem o perfil oficial: cria um equivalente, com o mesmo nome
+        cat > /etc/apparmor.d/rootlesskit <<'EOT'
 abi <abi/4.0>,
 include <tunables/global>
 
-/usr/bin/rootlesskit flags=(unconfined) {
+profile rootlesskit /usr/bin/rootlesskit flags=(unconfined) {
   userns,
-
-  # Site-specific additions and overrides. See local/README for details.
-  include if exists <local/usr.bin.rootlesskit>
+  include if exists <local/rootlesskit>
 }
 EOT
-    apparmor_parser -r /etc/apparmor.d/usr.bin.rootlesskit
+        apparmor_parser -r /etc/apparmor.d/rootlesskit
+    fi
 }
 
 usuario_aluno() {
