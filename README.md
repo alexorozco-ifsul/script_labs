@@ -13,15 +13,15 @@ programas, cria o usuário dos alunos e aplica as configurações de segurança.
 ```
  1. Máquina-template            2. Clonagem           3. Cada máquina do laboratório
  ┌──────────────────────┐      ┌────────────┐       ┌───────────────────────────────┐
- │ Instalar Ubuntu      │      │ TI clona a │       │ Laboratorista define nome/IP  │
- │ Rodar o script       │ ───► │ template   │ ────► │ Rodar o script de novo        │
- │ (~1 h, baixa tudo)   │      │ pela rede  │       │ (poucos minutos, só ajustes)  │
+ │ Instalar Ubuntu      │      │ TI clona a │       │ Ligar (reinicia sozinha 1 vez │
+ │ Rodar o script       │ ───► │ template   │ ────► │ no primeiro boot)             │
+ │ (~1 h, baixa tudo)   │      │ pela rede  │       │ Laboratorista define nome/IP  │
  └──────────────────────┘      └────────────┘       └───────────────────────────────┘
 ```
 
-O script é rodado **duas vezes**: uma na template (instalação completa) e outra
-em cada máquina depois da clonagem. Na segunda vez ele pula o que já está
-instalado e faz só os ajustes de cada máquina (identidade nova e atualizações).
+O script é rodado **uma única vez, na template**. As máquinas clonadas não
+precisam rodar nada: no primeiro boot, cada uma gera sozinha a sua identidade
+própria e reinicia uma vez.
 
 ---
 
@@ -58,29 +58,42 @@ sudo bash setupifsul.sh
 
 ## 2. Clonar
 
-Clone a template normalmente pela ferramenta de clonagem da TI.
-
-Não é preciso preparar nada antes: as diferenças entre as máquinas clonadas
-(identificação interna e chaves do SSH) são corrigidas no passo 3.
+Clone a template normalmente pela ferramenta de clonagem da TI. Não é preciso
+preparar nada antes.
 
 ---
 
 ## 3. Em cada máquina do laboratório
 
-1. Defina **nome** e **IP** da máquina conforme a posição no laboratório
-   (pode ser antes ou depois de rodar o script; o script não altera nenhum dos dois).
-2. Rode o script de novo:
+1. **Ligue a máquina.** No primeiro boot depois da clonagem ela **reinicia
+   sozinha uma vez** (leva alguns segundos a mais). Isso é esperado: é o serviço
+   `identidade-clone` gerando a identidade própria da máquina (veja abaixo).
+2. Defina **nome** e **IP** da máquina conforme a posição no laboratório.
 
-   ```bash
-   wget -qO setupifsul.sh https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main/setupifsul.sh
-   sudo bash setupifsul.sh
-   ```
+Pronto. Não é preciso rodar o script nas máquinas clonadas.
 
-3. Não há perguntas: a senha do root já veio da template. A execução leva **poucos minutos** (menos de 1 minuto
-   se a template estiver atualizada; mais se houver muitas atualizações do Ubuntu
-   desde que ela foi preparada).
-4. Confira o resumo final e **reinicie** a máquina.
+### O que é a "identidade própria"
 
+Uma máquina clonada sai com dados internos iguais aos da template. O serviço
+`identidade-clone` percebe que o hardware mudou (pelo UUID da placa-mãe ou da VM)
+e gera novos:
+
+- identificador da máquina (`/etc/machine-id`), usado pelo sistema e pelos logs;
+- chaves de identificação do SSH;
+- chave do NetworkManager que gera os endereços IPv6 (evita conflito de IPv6 entre clones).
+
+Ele age só uma vez por máquina. Também age se a placa-mãe for trocada.
+
+### Rodar o script de novo (opcional)
+
+O script pode ser executado de novo em qualquer máquina, a qualquer momento, para
+corrigir algo que falhou ou aplicar mudanças novas deste repositório. Ele pula o
+que já está feito e não pergunta nada (a senha do root já existe):
+
+```bash
+wget -qO setupifsul.sh https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main/setupifsul.sh
+sudo bash setupifsul.sh
+```
 
 ---
 

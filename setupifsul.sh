@@ -6,9 +6,12 @@
 # Fluxo previsto:
 #   1. Rodar este script UMA vez na máquina-template (faz os downloads pesados).
 #   2. A TI clona a template para as máquinas do laboratório.
-#   3. Em cada máquina, o laboratorista define nome e IP (conforme a posição do
-#      PC) e roda o script de novo: ele gera machine-id e chaves SSH novos (clone)
-#      e pula o que já existe. A senha do root só é pedida na template.
+#   3. Em cada máquina, o laboratorista só liga e define nome e IP (conforme a
+#      posição do PC). No primeiro boot, o serviço identidade-clone gera a
+#      identidade própria da máquina e reinicia uma vez, sozinho.
+#
+# Rodar o script de novo numa máquina é opcional: serve para corrigir uma etapa
+# que falhou ou aplicar mudanças novas deste repositório.
 #
 # Uso:   wget -qO setupifsul.sh https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main/setupifsul.sh
 #        sudo bash setupifsul.sh
@@ -163,24 +166,71 @@ senha_root() {
     echo "root:$ROOT_PASS" | chpasswd
 }
 
-# Máquinas clonadas saem com o mesmo machine-id e as mesmas chaves de host do SSH.
-# Gera novos sempre que o hardware (UUID da placa/VM) for diferente do registrado
-# na última execução. Nome e IP não são alterados: o laboratorista define conforme
-# a posição do PC no laboratório.
+# Máquinas clonadas saem com a identidade da template (machine-id, chaves de host do
+# SSH, chave do NetworkManager que gera os endereços IPv6, etc.). Em vez de exigir que
+# o script rode em cada clone, instala um serviço que, no boot, compara o UUID do
+# hardware (placa/VM) com o registrado: se mudou, é um clone -> gera identidade nova e
+# reinicia uma vez. Nome e IP não são alterados: o laboratorista define conforme a
+# posição do PC no laboratório.
 identidade() {
-    local estado=/var/lib/setupifsul uuid
-    uuid=$(cat /sys/class/dmi/id/product_uuid 2>/dev/null || echo desconhecido)
-    mkdir -p "$estado"
-    if [ "$(cat "$estado/uuid" 2>/dev/null)" != "$uuid" ]; then
-        echo "Hardware novo (clone): gerando machine-id e chaves SSH de host."
-        rm -f /etc/machine-id /var/lib/dbus/machine-id
-        systemd-machine-id-setup || return 1
-        ln -sf /etc/machine-id /var/lib/dbus/machine-id
-        rm -f /etc/ssh/ssh_host_*
-        ssh-keygen -A || return 1
-        echo "$uuid" > "$estado/uuid"
+    mkdir -p /var/lib/setupifsul
+    cat > /usr/local/sbin/identidade-clone <<'EOT'
+#!/bin/bash
+# Gera identidade nova quando a máquina é um clone (UUID do hardware mudou).
+# Uso: identidade-clone [--sem-reiniciar]
+ESTADO=/var/lib/setupifsul/uuid
+UUID=$(cat /sys/class/dmi/id/product_uuid 2>/dev/null || echo desconhecido)
+[ "$(cat "$ESTADO" 2>/dev/null)" = "$UUID" ] && exit 0
+
+echo "Hardware diferente do registrado ($UUID): gerando identidade nova."
+# machine-id (aleatório; não usar systemd-machine-id-setup, que pode derivar do UUID)
+systemd-id128 new > /etc/machine-id.novo && mv /etc/machine-id.novo /etc/machine-id
+chmod 444 /etc/machine-id
+ln -sf /etc/machine-id /var/lib/dbus/machine-id
+# Chaves de host do SSH
+rm -f /etc/ssh/ssh_host_*
+ssh-keygen -A
+# NetworkManager: chave secreta (endereços IPv6 estáveis) e concessões DHCP da template
+rm -f /var/lib/NetworkManager/secret_key /var/lib/NetworkManager/*.lease
+# Segredo e semente aleatória do systemd (recriados automaticamente)
+rm -f /var/lib/systemd/credential.secret /var/lib/systemd/random-seed
+
+# Só reinicia se o registro foi gravado (senão reiniciaria em todo boot)
+if ! { echo "$UUID" > "$ESTADO" && [ "$(cat "$ESTADO")" = "$UUID" ]; }; then
+    logger -t identidade-clone "ERRO: não gravou $ESTADO; sem reiniciar"
+    exit 1
+fi
+logger -t identidade-clone "Identidade nova gerada para o hardware $UUID"
+# Reinicia uma vez para todos os serviços usarem a identidade nova
+[ "${1:-}" = "--sem-reiniciar" ] || systemctl --no-block reboot
+exit 0
+EOT
+    chmod 755 /usr/local/sbin/identidade-clone
+
+    cat > /etc/systemd/system/identidade-clone.service <<'EOT'
+[Unit]
+Description=Gera identidade nova em máquinas clonadas (machine-id, SSH, rede)
+After=local-fs.target
+Before=NetworkManager.service ssh.service display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/identidade-clone
+
+[Install]
+WantedBy=multi-user.target
+EOT
+    systemctl daemon-reload && systemctl enable identidade-clone.service || return 1
+
+    # Primeira execução (template): registra o hardware atual, sem trocar nada.
+    # Se o script rodar num clone cujo serviço ainda não agiu, gera a identidade
+    # agora (sem reiniciar; reinicie ao final).
+    if [ ! -f /var/lib/setupifsul/uuid ]; then
+        cat /sys/class/dmi/id/product_uuid > /var/lib/setupifsul/uuid 2>/dev/null ||
+            echo desconhecido > /var/lib/setupifsul/uuid
+        echo "Hardware desta máquina registrado como referência (template)."
     else
-        echo "Mesma máquina da última execução: identidade mantida."
+        /usr/local/sbin/identidade-clone --sem-reiniciar
     fi
 }
 
@@ -522,7 +572,7 @@ limpeza_final() {
 # ----------------------------------------------------------------------------
 # Execução
 # ----------------------------------------------------------------------------
-passo "Identidade da máquina (clone)"       identidade
+passo "Identidade de clones (1º boot)"     identidade
 passo "Senha do root"                       senha_root
 passo "Rede (netplan e DHCP por MAC)"       rede
 snaps_inicia
