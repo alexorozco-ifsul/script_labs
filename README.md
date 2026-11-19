@@ -1,0 +1,188 @@
+# script_labs — configuração das máquinas dos laboratórios
+
+Script que deixa as máquinas dos laboratórios prontas para as aulas: instala os
+programas, cria o usuário dos alunos e aplica as configurações de segurança.
+
+- **Sistema:** Ubuntu 26.04 LTS Desktop, 64 bits (amd64)
+- **Script:** [`setupifsul.sh`](setupifsul.sh). Os demais arquivos deste repositório são baixados por ele automaticamente.
+
+---
+
+## Visão geral do processo
+
+```
+ 1. Máquina-template            2. Clonagem           3. Cada máquina do laboratório
+ ┌──────────────────────┐      ┌────────────┐       ┌───────────────────────────────┐
+ │ Instalar Ubuntu      │      │ TI clona a │       │ Laboratorista define nome/IP  │
+ │ Rodar o script       │ ───► │ template   │ ────► │ Rodar o script de novo        │
+ │ (~1 h, baixa tudo)   │      │ pela rede  │       │ (poucos minutos, só ajustes)  │
+ └──────────────────────┘      └────────────┘       └───────────────────────────────┘
+```
+
+O script é rodado **duas vezes**: uma na template (instalação completa) e outra
+em cada máquina depois da clonagem. Na segunda vez ele pula o que já está
+instalado e faz só os ajustes de cada máquina (identidade nova, senha do root,
+atualizações).
+
+---
+
+## 1. Preparar a máquina-template
+
+### Requisitos
+
+- Ubuntu 26.04 Desktop instalado, com o usuário administrador **`ifsul`**
+  (o script esconde esse usuário da tela de login)
+- Acesso à internet
+- Cerca de **40 GB livres** em disco (programas + swap de 20 GB)
+
+### Executar
+
+No terminal da template, logado como `ifsul`:
+
+```bash
+wget -qO setupifsul.sh https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main/setupifsul.sh
+sudo bash setupifsul.sh
+```
+
+1. O script pede a **nova senha do root** (duas vezes). É a única pergunta.
+2. Depois disso ele roda sozinho. Leva **cerca de 1 hora**, dependendo da rede.
+3. No final aparece um resumo:
+   - `Tudo certo. Reinicie a máquina para concluir.` → reinicie e siga para a clonagem;
+   - `Etapas com FALHA` → veja [Quando algo falha](#quando-algo-falha).
+
+> **Importante:** antes de clonar, confira que o resumo final não tem falhas e
+> reinicie a template uma vez.
+
+---
+
+## 2. Clonar
+
+Clone a template normalmente pela ferramenta de clonagem da TI.
+
+Não é preciso preparar nada antes: as diferenças entre as máquinas clonadas
+(identificação interna e chaves do SSH) são corrigidas no passo 3.
+
+---
+
+## 3. Em cada máquina do laboratório
+
+1. Defina **nome** e **IP** da máquina conforme a posição no laboratório
+   (pode ser antes ou depois de rodar o script; o script não altera nenhum dos dois).
+2. Rode o script de novo:
+
+   ```bash
+   wget -qO setupifsul.sh https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main/setupifsul.sh
+   sudo bash setupifsul.sh
+   ```
+
+3. Informe a senha do root. A execução leva **poucos minutos** (menos de 1 minuto
+   se a template estiver atualizada; mais se houver muitas atualizações do Ubuntu
+   desde que ela foi preparada).
+4. Confira o resumo final e **reinicie** a máquina.
+
+Para não digitar a senha em cada máquina:
+
+```bash
+sudo ROOT_PASS='senha-do-root' bash setupifsul.sh
+```
+
+---
+
+## Quando algo falha
+
+O script **não para** quando uma etapa falha: ele segue com as outras e, no fim,
+lista as que falharam.
+
+1. Veja o motivo no log: `/var/log/setupifsul.log`
+   (os programas snap têm um log próprio: `/var/log/setupifsul-snaps.log`).
+2. A causa mais comum é **queda de rede** ou um site fora do ar por alguns minutos.
+3. Resolvido o problema, **rode o script de novo**. Ele refaz só o que faltou;
+   o que já foi feito é pulado.
+
+Rodar o script várias vezes na mesma máquina é seguro.
+
+---
+
+## Acesso remoto (SSH)
+
+Depois do script, o SSH das máquinas aceita **somente o usuário `root` com a
+chave `ifsul_labs`**. Senha não funciona, e o usuário `ifsul` não entra por SSH.
+
+```bash
+ssh -i ~/.ssh/ifsul_labs root@<ip-da-maquina>
+```
+
+- A chave privada `ifsul_labs` é entregue à TI separadamente e **dá acesso de
+  root a todas as máquinas**: guarde em local seguro e não compartilhe por e-mail
+  ou chat.
+- Cada máquina tem suas próprias chaves de identificação do SSH. Se uma máquina
+  for clonada de novo, o SSH vai avisar `REMOTE HOST IDENTIFICATION HAS CHANGED`.
+  Isso é esperado; para aceitar a nova identificação:
+
+  ```bash
+  ssh-keygen -R <ip-da-maquina>
+  ```
+
+---
+
+## O que o script faz
+
+### Programas
+
+| Área | Programas |
+|---|---|
+| Redes | Cisco Packet Tracer 9.0.1, nmap, traceroute, net-tools |
+| Programação | VS Code, Eclipse, IntelliJ IDEA Community, Android Studio, Spring Tools 5.4, OpenJDK 25, Node.js 26, Git, Postman |
+| Banco de dados | MySQL 8.4, MySQL Workbench, brModelo |
+| Web | Apache, PHP |
+| IA / ciência de dados | Python 3.13 com scikit-learn, pandas, matplotlib, seaborn, TensorFlow e PyTorch (comando `python-ia`) |
+| Contêineres | Docker (cada aluno usa o seu, sem acesso de administrador) |
+| Outros | LibreOffice, VLC, VirtualBox, Arduino IDE 2, Blender, Blockbench |
+
+### Usuário dos alunos
+
+- Usuário **`alunoinfo`**, senha **`alunoinfo`**.
+- **A pasta pessoal é apagada a cada sessão:** ao sair da sessão (e ao ligar a
+  máquina), tudo o que o aluno criou ou alterou some e a pasta volta ao padrão.
+  Os alunos devem salvar trabalhos em pendrive ou na nuvem.
+- Wallpaper do IFSul, teclado brasileiro e tema padrão aplicados a cada login.
+
+### Rede
+
+- O IP continua vindo do **DHCP com filtro por MAC**: o script faz a máquina se
+  identificar pelo MAC da placa de rede.
+- Se o IP for definido manualmente, ele deixa de voltar para "automático" depois
+  de reiniciar ou atualizar o sistema (problema do instalador do Ubuntu que o
+  script corrige).
+
+### Outras configurações
+
+- Usuário administrador `ifsul` escondido da tela de login.
+- MySQL: usuário `root`, senha `root` (apenas acesso local, para as aulas).
+- Pasta do Apache (`/var/www/html`) gravável pelo aluno e pelo PHP.
+- Swap adicional de 20 GB.
+- Atualizações de segurança automáticas mantidas; avisos de atualização para o
+  usuário desativados.
+
+### Não incluído
+
+- **Veyon:** fica fora deste script por enquanto. No Ubuntu 26.04 (só Wayland)
+  ele não permite controle remoto. Será instalado à parte quando isso for resolvido.
+- Máquinas dos professores (Veyon Master): configuradas manualmente, fora deste script.
+
+---
+
+## Arquivos do repositório
+
+| Arquivo | Uso |
+|---|---|
+| `setupifsul.sh` | O script |
+| `ifsul_labs.pub` | Chave pública do SSH (vai para o root das máquinas) |
+| `defaultsifsul.sh` | Padrões aplicados a cada login do aluno |
+| `ifsul.png` | Wallpaper |
+| `brmodelo.desktop`, `firefox_firefox.desktop` | Atalhos de menu |
+| `veyon-ppa.asc`, `aluno-veyon-config.json`, `professor_public_key.pem` | Reservados para a instalação futura do Veyon |
+| `linux-configure_aluno.yml`, `alunoinfo_clean.bat`, `ifsul_pascoa.png` | Não usados pelo script (referência) |
+
+> **Atenção:** este repositório é público e o script roda como root em todas as
+> máquinas. Nunca adicione senhas, tokens ou chaves **privadas** aqui.
