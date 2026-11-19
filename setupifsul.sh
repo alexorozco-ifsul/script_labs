@@ -7,8 +7,8 @@
 #   1. Rodar este script UMA vez na máquina-template (faz os downloads pesados).
 #   2. A TI clona a template para as máquinas do laboratório.
 #   3. Em cada máquina, o laboratorista define nome e IP (conforme a posição do
-#      PC) e roda o script de novo: ele gera machine-id e chaves SSH novos (clone),
-#      define a senha do root e pula o que já existe.
+#      PC) e roda o script de novo: ele gera machine-id e chaves SSH novos (clone)
+#      e pula o que já existe. A senha do root só é pedida na template.
 #
 # Uso:   wget -qO setupifsul.sh https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main/setupifsul.sh
 #        sudo bash setupifsul.sh
@@ -132,8 +132,12 @@ if ! wget -q --spider --timeout=15 "$REPO/setupifsul.sh"; then
     exit 1
 fi
 
-# Senha do root: pergunta antes de tudo para o resto rodar sem interação
-if [ -z "${ROOT_PASS:-}" ]; then
+# Senha do root: definida uma única vez, na template (num Ubuntu recém-instalado o
+# root vem bloqueado, sem senha). Nos clones ela já existe e o script não pergunta.
+# Para trocar depois: sudo passwd root
+root_tem_senha() { [[ "$(getent shadow root | cut -d: -f2)" == \$* ]]; }
+if [ -z "${ROOT_PASS:-}" ] && ! root_tem_senha; then
+    echo "O root ainda não tem senha (primeira execução, na template)."
     while true; do
         read -r -s -p "Nova senha do root: " ROOT_PASS; echo
         read -r -s -p "Repita a senha: " r; echo
@@ -151,7 +155,13 @@ trap 'rm -rf "$TMP"' EXIT
 # ----------------------------------------------------------------------------
 # Etapas
 # ----------------------------------------------------------------------------
-senha_root() { echo "root:$ROOT_PASS" | chpasswd; }
+senha_root() {
+    if [ -z "${ROOT_PASS:-}" ]; then
+        echo "Senha do root já definida (veio da template): mantida."
+        return 0
+    fi
+    echo "root:$ROOT_PASS" | chpasswd
+}
 
 # Máquinas clonadas saem com o mesmo machine-id e as mesmas chaves de host do SSH.
 # Gera novos sempre que o hardware (UUID da placa/VM) for diferente do registrado

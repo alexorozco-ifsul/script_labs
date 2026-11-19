@@ -21,8 +21,7 @@ programas, cria o usuário dos alunos e aplica as configurações de segurança.
 
 O script é rodado **duas vezes**: uma na template (instalação completa) e outra
 em cada máquina depois da clonagem. Na segunda vez ele pula o que já está
-instalado e faz só os ajustes de cada máquina (identidade nova, senha do root,
-atualizações).
+instalado e faz só os ajustes de cada máquina (identidade nova e atualizações).
 
 ---
 
@@ -44,7 +43,9 @@ wget -qO setupifsul.sh https://raw.githubusercontent.com/alexorozco-ifsul/script
 sudo bash setupifsul.sh
 ```
 
-1. O script pede a **nova senha do root** (duas vezes). É a única pergunta.
+1. O script pede a **senha do root** (duas vezes, para confirmar). É a única pergunta,
+   e só acontece aqui: a senha vai junto para todas as máquinas clonadas.
+   Para trocá-la depois: `sudo passwd root`.
 2. Depois disso ele roda sozinho. Leva **cerca de 1 hora**, dependendo da rede.
 3. No final aparece um resumo:
    - `Tudo certo. Reinicie a máquina para concluir.` → reinicie e siga para a clonagem;
@@ -75,7 +76,7 @@ Não é preciso preparar nada antes: as diferenças entre as máquinas clonadas
    sudo bash setupifsul.sh
    ```
 
-3. Informe a senha do root. A execução leva **poucos minutos** (menos de 1 minuto
+3. Não há perguntas: a senha do root já veio da template. A execução leva **poucos minutos** (menos de 1 minuto
    se a template estiver atualizada; mais se houver muitas atualizações do Ubuntu
    desde que ela foi preparada).
 4. Confira o resumo final e **reinicie** a máquina.
