@@ -12,7 +12,6 @@
 #
 # Uso:   wget -qO setupifsul.sh https://raw.githubusercontent.com/alexorozco-ifsul/script_labs/main/setupifsul.sh
 #        sudo bash setupifsul.sh
-#        (opcional) sudo ROOT_PASS='senha' bash setupifsul.sh  -> sem perguntas
 #
 # O script pode ser executado novamente na mesma máquina: cada etapa verifica o
 # que já foi feito. Uma etapa que falha não interrompe as outras; no final é

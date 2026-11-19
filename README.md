@@ -80,11 +80,6 @@ Não é preciso preparar nada antes: as diferenças entre as máquinas clonadas
    desde que ela foi preparada).
 4. Confira o resumo final e **reinicie** a máquina.
 
-Para não digitar a senha em cada máquina:
-
-```bash
-sudo ROOT_PASS='senha-do-root' bash setupifsul.sh
-```
 
 ---
 
