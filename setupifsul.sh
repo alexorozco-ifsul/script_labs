@@ -251,35 +251,6 @@ apt_instalar() {
     apt_get install "${APT_INSTALAR[@]}"
 }
 
-# PPA separado: se o Launchpad estiver fora do ar (já aconteceu: 503), só o Veyon
-# falha, e o script tenta de novo algumas vezes antes de desistir.
-# O repositório é gravado direto, com a chave do PPA vinda deste repositório
-# (fingerprint 4B776B9B1C1938F18C023C8C49ABD150D5D0DCC6, conferida no Launchpad):
-# o add-apt-repository depende da API do Launchpad, que falhou nos testes.
-veyon_instalar() {
-    dpkg -s veyon >/dev/null 2>&1 && return 0
-    mkdir -p /etc/apt/keyrings
-    baixa_repo veyon-ppa.asc /etc/apt/keyrings/veyon-ppa.asc || return 1
-    saida_contem '^fpr:::::::::4B776B9B1C1938F18C023C8C49ABD150D5D0DCC6:' \
-        gpg --show-keys --with-colons /etc/apt/keyrings/veyon-ppa.asc ||
-        { echo "Chave do PPA do Veyon não confere."; return 1; }
-    rm -f /etc/apt/sources.list.d/veyon-ubuntu-stable-*.sources
-    cat > /etc/apt/sources.list.d/veyon-ppa.sources <<EOT
-Types: deb
-URIs: https://ppa.launchpadcontent.net/veyon/stable/ubuntu/
-Suites: ${VERSION_CODENAME}
-Components: main
-Signed-By: /etc/apt/keyrings/veyon-ppa.asc
-EOT
-    for t in 1 2 3 4 5; do
-        apt_get update
-        saida_contem 'Candidat[eo]: [0-9]' apt-cache policy veyon && break
-        echo "PPA do Veyon indisponível (tentativa $t/5), aguardando 60 s..."
-        sleep 60
-    done
-    apt_get install veyon
-}
-
 packet_tracer() {
     if dpkg -s packettracer >/dev/null 2>&1 &&
        [ "$(dpkg-query -W -f='${Version}' packettracer)" = "9.0.1" ]; then
@@ -318,23 +289,6 @@ brmodelo() {
     baixa "$BRMODELO_URL" /opt/brmodelo/brmodelo.jar &&
     baixa "$BRMODELO_ICON" /opt/brmodelo/icon.png &&
     baixa_repo brmodelo.desktop /usr/share/applications/brmodelo.desktop
-}
-
-veyon_config() {
-    command -v veyon-cli >/dev/null || { echo "Veyon não instalado."; return 1; }
-    baixa_repo aluno-veyon-config.json "$TMP/veyon.json" &&
-    baixa_repo professor_public_key.pem "$TMP/professor.pem" &&
-    veyon-cli config import "$TMP/veyon.json" || return 1
-    saida_contem '^professor/public' veyon-cli authkeys list ||
-        veyon-cli authkeys import professor/public "$TMP/professor.pem" || return 1
-    # Master e Configurator escondidos dos usuários comuns (mantido após atualizações)
-    for f in veyon-master veyon-configurator; do
-        dpkg-statoverride --list "/usr/share/applications/$f.desktop" >/dev/null ||
-            dpkg-statoverride --update --add root root 0640 "/usr/share/applications/$f.desktop"
-    done
-    systemctl enable --now veyon.service
-    # Obs.: o WaylandEnable=false do antigo playbook NÃO é usado: o Ubuntu 26.04 não tem
-    # sessão Xorg, e o Veyon 4.11 tem suporte (experimental) a Wayland
 }
 
 # Python 3.13 compartilhado: o TensorFlow ainda não suporta o Python 3.14 do sistema
@@ -566,7 +520,6 @@ snaps_inicia
 passo "Atualização do sistema"              apt_base
 passo "Remoção de pacotes desnecessários"   apt_remover
 passo "Pacotes do apt (inclui o JDK)"       apt_instalar
-passo "Veyon (PPA)"                         veyon_instalar
 passo "Packet Tracer 9.0.1"                 packet_tracer
 passo "Spring Tools $STS_VER"               spring_tools
 passo "brModelo"                            brmodelo
@@ -574,7 +527,6 @@ passo "Docker"                              docker_instalar
 passo "Python para IA (/opt/ia)"            python_ia
 passo "Usuário $ALUNO"                      usuario_aluno
 passo "Docker rootless do $ALUNO"           docker_rootless_aluno
-passo "Veyon (configuração de aluno)"       veyon_config
 passo "MySQL"                               mysql_config
 passo "Apache (/var/www/html)"              apache_config
 passo "Wallpaper, defaults e login"         visual
