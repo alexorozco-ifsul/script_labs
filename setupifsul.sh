@@ -52,6 +52,9 @@ APT_INSTALAR=(
     net-tools traceroute nmap openssh-server
     mysql-server apache2 php libapache2-mod-php php-mysql
     python3-pip python3-venv
+    # Ciência de dados no python3 do sistema (versões do Ubuntu); o python-ia tem
+    # as mesmas bibliotecas, mais TensorFlow e PyTorch
+    python3-pandas python3-sklearn python3-matplotlib python3-seaborn
 )
 
 # "nome|opções[|trilha]" - instalados em segundo plano, em paralelo com o resto.
@@ -595,8 +598,13 @@ swap() {
 home_limpa() {
     local uid; uid=$(id -u "$ALUNO")
     systemctl stop "user@$uid.service"
+    # Processos do aluno que sobraram das etapas anteriores (snaps, Packet Tracer)
+    # ainda podem estar gravando cache na home durante a cópia
+    pkill -KILL -u "$ALUNO" 2>/dev/null; sleep 1
     mkdir -p /var/lib/alunoinfo-modelo && chmod 700 /var/lib/alunoinfo-modelo
-    rsync -a --delete --exclude=.local/share/docker "/home/$ALUNO/" /var/lib/alunoinfo-modelo/home/ || return 1
+    # código 24 = arquivos que sumiram durante a cópia (caches): não é erro
+    rsync -a --delete --exclude=.local/share/docker "/home/$ALUNO/" /var/lib/alunoinfo-modelo/home/
+    case $? in 0|24) ;; *) return 1 ;; esac
 
     cat > /usr/local/sbin/limpar-alunoinfo <<EOT
 #!/bin/bash
