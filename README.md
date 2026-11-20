@@ -59,7 +59,7 @@ preparar nada antes.
 1. **Ligue a máquina.** No primeiro boot depois da clonagem ela **reinicia
    sozinha uma vez** (leva alguns segundos a mais). Isso é esperado: é o serviço
    `identidade-clone` gerando a identidade própria da máquina (veja abaixo).
-2. Defina **nome** e **IP** da máquina conforme a posição no laboratório.
+2. Execute o script da TI que define **hostname** e **IP**.
 
 Pronto. Não é preciso rodar o script nas máquinas clonadas.
 
