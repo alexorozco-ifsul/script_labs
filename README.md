@@ -177,7 +177,7 @@ ambiente de IA (o TensorFlow ainda não funciona com versões mais novas do Pyth
 | `ifsul.png` | Wallpaper |
 | `brmodelo.desktop`, `firefox_firefox.desktop` | Atalhos de menu |
 | `veyon-ppa.asc`, `aluno-veyon-config.json`, `professor_public_key.pem` | Reservados para a instalação futura do Veyon |
-| `linux-configure_aluno.yml`, `alunoinfo_clean.bat`, `ifsul_pascoa.png` | Não usados pelo script (referência) |
+| `linux-configure_aluno.yml`, `alunoinfo_clean.bat` | Não usados pelo script (referência) |
 
 > **Atenção:** este repositório é público e o script roda como root em todas as
 > máquinas. Nunca adicione senhas, tokens ou chaves **privadas** aqui.
