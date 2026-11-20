@@ -27,15 +27,6 @@ própria e reinicia uma vez.
 
 ## 1. Preparar a máquina-template
 
-### Requisitos
-
-- Ubuntu 26.04 Desktop instalado, com o usuário administrador **`ifsul`**
-  (o script esconde esse usuário da tela de login)
-- Acesso à internet
-- Cerca de **40 GB livres** em disco (programas + swap de 20 GB)
-
-### Executar
-
 No terminal da template, logado como `ifsul`:
 
 ```bash
