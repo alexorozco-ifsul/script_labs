@@ -37,6 +37,10 @@ PT_SHA256="3683dd87e779885372ae9a35c1a6e594d12f493e649e7c697408729c1459479b"
 STS_VER="5.4.0.RELEASE"
 STS_URL="https://cdn.spring.io/spring-tools/release/dist/${STS_VER}/e4.41/spring-tools-for-eclipse-${STS_VER}-e4.41.0-linux.gtk.x86_64.tar.gz"
 
+# Repositório oficial do MongoDB (série 9.0 é a que tem pacotes para o 26.04)
+MONGO_VER="9.0"
+MONGO_FPR="B3B42B6C39E5CDDEC0A27E3CF366D55B602E502D"   # "MongoDB 9 Release Signing Key"
+
 BRMODELO_URL="https://github.com/chcandido/brModelo/releases/download/3.31/brModelo.jar"
 BRMODELO_ICON="https://github.com/chcandido/brModelo/raw/master/src/imagens/icone.png"
 
@@ -102,6 +106,17 @@ apt_get() {
     DEBIAN_FRONTEND=noninteractive apt-get -y \
         -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
         -o DPkg::Lock::Timeout=600 "$@"
+}
+
+# apt-get update esperando a trava das listas (o DPkg::Lock::Timeout só cobre a do
+# dpkg; a atualização automática do Ubuntu pode estar com as listas ocupadas)
+apt_update() {
+    local i
+    for i in $(seq 60); do
+        apt_get update && return 0
+        sleep 10
+    done
+    return 1
 }
 
 como_aluno() { runuser -u "$ALUNO" -- "$@"; }
@@ -295,7 +310,7 @@ snaps_inicia() {
 }
 
 apt_base() {
-    apt_get update && apt_get full-upgrade
+    apt_update && apt_get full-upgrade
 }
 
 apt_remover() {
@@ -459,6 +474,37 @@ mysql_config() {
     fi
 }
 
+mongodb() {
+    local maior=${MONGO_VER%%.*} codinome
+    local chave="/usr/share/keyrings/mongodb-server-$maior.asc"
+    codinome=$(. /etc/os-release && echo "$VERSION_CODENAME")
+    # Chave baixada do site do MongoDB e conferida pela impressão digital
+    if ! saida_contem "$MONGO_FPR" gpg --show-keys --with-colons "$chave"; then
+        baixa "https://pgp.mongodb.com/server-$maior.asc" "$TMP/mongo.asc" || return 1
+        if ! saida_contem "$MONGO_FPR" gpg --show-keys --with-colons "$TMP/mongo.asc"; then
+            aviso "Chave do MongoDB com impressão digital inesperada"; return 1
+        fi
+        install -m 644 "$TMP/mongo.asc" "$chave" || return 1
+    fi
+    cat > /etc/apt/sources.list.d/mongodb-org.sources <<EOT
+Types: deb
+URIs: https://repo.mongodb.org/apt/ubuntu
+Suites: $codinome/mongodb-org/$MONGO_VER
+Components: multiverse
+Architectures: amd64
+Signed-By: $chave
+EOT
+    apt_update && apt_get install mongodb-org || return 1
+    systemctl enable --now mongod || return 1
+    # Escuta só em 127.0.0.1 (padrão do pacote), sem autenticação: uso local nas aulas
+    local i
+    for i in $(seq 30); do
+        saida_contem '^1$' mongosh --quiet --eval 'db.runCommand({ping: 1}).ok' && return 0
+        sleep 1
+    done
+    aviso "mongod não respondeu (o MongoDB exige CPU com AVX)"; return 1
+}
+
 apache_config() {
     # Aluno e PHP (www-data) podem escrever; os demais usuários não (antes era 777)
     chown -R "$ALUNO:www-data" /var/www/html &&
@@ -587,6 +633,7 @@ passo "Python para IA (/opt/ia)"            python_ia
 passo "Usuário $ALUNO"                      usuario_aluno
 passo "Docker rootless do $ALUNO"           docker_rootless_aluno
 passo "MySQL"                               mysql_config
+passo "MongoDB $MONGO_VER"                        mongodb
 passo "Apache (/var/www/html)"              apache_config
 passo "Wallpaper, defaults e login"         visual
 passo "Swap de ${SWAP_GB} GB"               swap

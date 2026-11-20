@@ -130,7 +130,7 @@ ssh -i ~/.ssh/ifsul_labs root@<ip-da-maquina>
 |---|---|
 | Redes | Cisco Packet Tracer 9.0.1, nmap, traceroute, net-tools |
 | Programação | VS Code, Eclipse, IntelliJ IDEA Community, Android Studio, Spring Tools 5.4, OpenJDK 25, Node.js 26, Git, Postman |
-| Banco de dados | MySQL 8.4, MySQL Workbench, brModelo |
+| Banco de dados | MySQL 8.4, MySQL Workbench, MongoDB 9.0 (com `mongosh`), brModelo |
 | Web | Apache, PHP |
 | IA / ciência de dados | Python 3.13 com scikit-learn, pandas, matplotlib, seaborn, TensorFlow e PyTorch (comando `python-ia`) |
 | Contêineres | Docker (cada aluno usa o seu, sem acesso de administrador) |
@@ -156,6 +156,7 @@ ssh -i ~/.ssh/ifsul_labs root@<ip-da-maquina>
 
 - Usuário administrador `ifsul` escondido da tela de login.
 - MySQL: usuário `root`, senha `root` (apenas acesso local, para as aulas).
+- MongoDB: sem senha, apenas acesso local (`mongosh` na própria máquina).
 - Pasta do Apache (`/var/www/html`) gravável pelo aluno e pelo PHP.
 - Swap adicional de 20 GB.
 - Atualizações de segurança automáticas mantidas; avisos de atualização para o
