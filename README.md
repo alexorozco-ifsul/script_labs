@@ -79,8 +79,7 @@ Uma máquina clonada sai com dados internos iguais aos da template. O serviço
 e gera novos:
 
 - identificador da máquina (`/etc/machine-id`), usado pelo sistema e pelos logs;
-- chaves de identificação do SSH;
-- chave do NetworkManager que gera os endereços IPv6 (evita conflito de IPv6 entre clones).
+- chaves de identificação do SSH.
 
 Ele age só uma vez por máquina. Também age se a placa-mãe for trocada.
 
