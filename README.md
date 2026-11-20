@@ -132,6 +132,7 @@ ssh -i ~/.ssh/ifsul_labs root@<ip-da-maquina>
 | Programação | VS Code, Eclipse, IntelliJ IDEA Community, Android Studio, Spring Tools, OpenJDK, Node.js, Git, Postman |
 | Banco de dados | MySQL, MySQL Workbench, MongoDB (com `mongosh`), brModelo |
 | Web | Apache, PHP |
+| Python | Python mais novo (comando `python3.X`, hoje `python3.15`), além do `python3` do sistema |
 | IA / ciência de dados | Python 3.13 com scikit-learn, pandas, matplotlib, seaborn, TensorFlow e PyTorch (comando `python-ia`) |
 | Contêineres | Docker e Docker Compose (cada aluno usa o seu, sem acesso de administrador) |
 | Outros | LibreOffice, VLC, VirtualBox, Arduino IDE, Blender, Blockbench |
@@ -147,14 +148,6 @@ ambiente de IA (o TensorFlow ainda não funciona com versões mais novas do Pyth
   máquina), tudo o que o aluno criou ou alterou some e a pasta volta ao padrão.
   Os alunos devem salvar trabalhos em pendrive ou na nuvem.
 - Wallpaper do IFSul, teclado brasileiro e tema padrão aplicados a cada login.
-
-### Rede
-
-- O IP continua vindo do **DHCP com filtro por MAC**: o script faz a máquina se
-  identificar pelo MAC da placa de rede.
-- Se o IP for definido manualmente, ele deixa de voltar para "automático" depois
-  de reiniciar ou atualizar o sistema (problema do instalador do Ubuntu que o
-  script corrige).
 
 ### Outras configurações
 
