@@ -393,21 +393,6 @@ brmodelo() {
 }
 
 # Python 3.13 compartilhado: o TensorFlow ainda não suporta o Python 3.14 do sistema
-# Python mais novo (estável) para uso geral, como comando python3.X em /usr/local/bin.
-# Não substitui o python3 do sistema (as ferramentas do Ubuntu dependem dele).
-python_novo() {
-    export UV_PYTHON_INSTALL_DIR=/opt/ia-python UV_PYTHON_BIN_DIR=/usr/local/bin
-    local ver menor
-    ver=$(uv python list --only-downloads 2>/dev/null |
-          grep -oE '^cpython-3\.[0-9]+\.[0-9]+-linux-x86_64-gnu ' | cut -d- -f2 | sort -V | tail -n 1)
-    [ -n "$ver" ] || { aviso "Não foi possível descobrir o Python mais novo"; return 1; }
-    menor=${ver%.*}
-    echo "Python mais novo: $ver"
-    uv python install --upgrade "$menor" || return 1
-    chmod -R a+rX /opt/ia-python
-    "/usr/local/bin/python$menor" --version
-}
-
 python_ia() {
     export UV_PYTHON_INSTALL_DIR=/opt/ia-python
     if command -v uv >/dev/null; then
@@ -698,7 +683,6 @@ passo "Spring Tools"                        spring_tools
 passo "brModelo"                            brmodelo
 passo "Docker"                              docker_instalar
 passo "Python para IA (/opt/ia)"            python_ia
-passo "Python mais novo"                    python_novo
 passo "Usuário $ALUNO"                      usuario_aluno
 passo "Docker rootless do $ALUNO"           docker_rootless_aluno
 passo "MySQL"                               mysql_config
