@@ -34,14 +34,13 @@ SWAP_GB=20                        # tamanho do /swapfile adicional
 PT_URL="https://www.dropbox.com/scl/fi/4yn88h3o8ihbiodj3twme/CiscoPacketTracer_901_Ubuntu_64bit.deb?rlkey=p80dod2n2jg2mgq74sgstg0vt&st=tuehpkz6&dl=1"
 PT_SHA256="3683dd87e779885372ae9a35c1a6e594d12f493e649e7c697408729c1459479b"
 
-STS_VER="5.4.0.RELEASE"
-STS_URL="https://cdn.spring.io/spring-tools/release/dist/${STS_VER}/e4.41/spring-tools-for-eclipse-${STS_VER}-e4.41.0-linux.gtk.x86_64.tar.gz"
+# Versões: só o Packet Tracer (arquivo fixo) e o Python do /opt/ia (3.13, o TensorFlow
+# ainda não tem pacotes para o 3.14) são fixos. O resto é sempre a versão mais nova.
 
-# Repositório oficial do MongoDB (série 9.0 é a que tem pacotes para o 26.04)
-MONGO_VER="9.0"
-MONGO_FPR="B3B42B6C39E5CDDEC0A27E3CF366D55B602E502D"   # "MongoDB 9 Release Signing Key"
+# Spring Tools: o link da versão atual é lido da página oficial
+STS_PAGINA="https://spring.io/tools"
 
-BRMODELO_URL="https://github.com/chcandido/brModelo/releases/download/3.31/brModelo.jar"
+BRMODELO_URL="https://github.com/chcandido/brModelo/releases/latest/download/brModelo.jar"
 BRMODELO_ICON="https://github.com/chcandido/brModelo/raw/master/src/imagens/icone.png"
 
 # update-notifier (avisos de atualização) e não update-manager: o update-manager é
@@ -55,14 +54,16 @@ APT_INSTALAR=(
     python3-pip python3-venv
 )
 
-# "nome|opções" - instalados em segundo plano, em paralelo com o resto
+# "nome|opções[|trilha]" - instalados em segundo plano, em paralelo com o resto.
+# "trilha": usa a trilha numérica mais nova com versão estável (ex.: node 26/stable),
+# para snaps cujo canal latest está vazio ou parado numa versão antiga.
 SNAPS=(
     "eclipse|--classic"
-    "node|--classic --channel=26/stable"        # canal latest do snap node está vazio
+    "node|--classic|trilha"                     # canal latest do snap node está vazio
     "android-studio|--classic"
     "code|--classic"
     "mysql-workbench-community|"
-    "arduino|--channel=2/stable"                # latest ainda é a IDE 1.8.19
+    "arduino||trilha"                           # latest ainda é a IDE 1.8.19
     "postman|"
     "blender|--classic"
     "blockbench-snapcraft|"
@@ -282,13 +283,34 @@ EOT
 }
 
 # Snaps em segundo plano: baixam enquanto o apt trabalha
+# maior trilha numérica do snap com versão estável publicada (ex.: 26)
+snap_trilha_mais_nova() {
+    snap info "$1" 2>/dev/null | awk '
+        /^channels:/ { c = 1; next }
+        c && $1 ~ /^[0-9]+\/stable:$/ && $2 != "--" { split($1, a, "/"); print a[1] }
+    ' | sort -n | tail -n 1
+}
+
 snaps_inicia() {
     (
         snap wait system seed.loaded
         for item in "${SNAPS[@]}"; do
-            nome=${item%%|*}; opts=${item#*|}
+            nome=${item%%|*}; resto=${item#*|}; opts=${resto%%|*}; canal=""
+            if [ "$resto" != "$opts" ] && [ "${resto#*|}" = trilha ]; then
+                t=$(snap_trilha_mais_nova "$nome")
+                if [ -n "$t" ]; then canal="$t/stable"; opts="$opts --channel=$canal"
+                else echo "snap $nome: trilha mais nova não encontrada, usando latest"; fi
+            fi
             if snap list "$nome" >/dev/null 2>&1; then
-                echo "[OK] snap $nome (já instalado)"
+                # Já instalado: atualiza para a trilha mais nova, se surgiu uma
+                atual=$(snap list "$nome" 2>/dev/null | awk 'NR == 2 { print $4 }')
+                if [ -n "$canal" ] && [ "$atual" != "$canal" ]; then
+                    snap refresh "$nome" --channel="$canal" &&
+                        echo "[OK] snap $nome ($atual -> $canal)" ||
+                        echo "[FALHA] snap $nome ($atual -> $canal)"
+                else
+                    echo "[OK] snap $nome (já instalado)"
+                fi
                 continue
             fi
             # Até 3 tentativas: o apt pode atualizar o snapd ao mesmo tempo e
@@ -339,9 +361,14 @@ packet_tracer() {
 }
 
 spring_tools() {
-    local dir=/opt/sts-$STS_VER
+    local url ver dir
+    url=$(wget -qO- "$STS_PAGINA" | grep -m 1 -oE 'https://cdn\.spring\.io/spring-tools/release/dist/[^"]*-linux\.gtk\.x86_64\.tar\.gz')
+    [ -n "$url" ] || { aviso "Link do Spring Tools não encontrado em $STS_PAGINA"; return 1; }
+    ver=$(sed -E 's#.*/dist/([^/]+)/.*#\1#' <<< "$url")
+    echo "Spring Tools mais novo: $ver"
+    dir=/opt/sts-$ver
     if [ ! -x "$dir/SpringToolsForEclipse" ]; then
-        baixa "$STS_URL" "$TMP/sts.tar.gz" &&
+        baixa "$url" "$TMP/sts.tar.gz" &&
         tar -xzf "$TMP/sts.tar.gz" -C /opt/ || return 1
     fi
     # Remove atalhos e versões antigas (o script antigo usava sts-<versão>.desktop)
@@ -368,12 +395,16 @@ brmodelo() {
 # Python 3.13 compartilhado: o TensorFlow ainda não suporta o Python 3.14 do sistema
 python_ia() {
     export UV_PYTHON_INSTALL_DIR=/opt/ia-python
-    command -v uv >/dev/null ||
+    if command -v uv >/dev/null; then
+        uv self update >/dev/null 2>&1 || true
+    else
         curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin UV_NO_MODIFY_PATH=1 sh || return 1
+    fi
     [ -x /opt/ia/bin/python ] || uv venv --python 3.13 /opt/ia || return 1
-    uv pip install --python /opt/ia/bin/python "${IA_PACOTES[@]}" &&
+    # --upgrade: a cada execução as bibliotecas vão para a versão mais nova
+    uv pip install --upgrade --python /opt/ia/bin/python "${IA_PACOTES[@]}" &&
     # PyTorch só CPU: a versão padrão traz vários GB de bibliotecas CUDA
-    uv pip install --python /opt/ia/bin/python torch --index-url https://download.pytorch.org/whl/cpu || return 1
+    uv pip install --upgrade --python /opt/ia/bin/python torch --index-url https://download.pytorch.org/whl/cpu || return 1
     # python-ia: script (não link simbólico). O Python acha o ambiente virtual pelo
     # caminho por onde é chamado; via link em /usr/local/bin ele ignorava o /opt/ia
     # e as bibliotecas não eram encontradas (testado na VM).
@@ -480,27 +511,43 @@ mysql_config() {
 }
 
 mongodb() {
-    local maior=${MONGO_VER%%.*} codinome
-    local chave="/usr/share/keyrings/mongodb-server-$maior.asc"
+    local codinome base serie="" s k ok=""
+    local chave=/usr/share/keyrings/mongodb-server.asc
     codinome=$(. /etc/os-release && echo "$VERSION_CODENAME")
-    # Chave baixada do site do MongoDB e conferida pela impressão digital
-    if ! saida_contem "$MONGO_FPR" gpg --show-keys --with-colons "$chave"; then
-        baixa "https://pgp.mongodb.com/server-$maior.asc" "$TMP/mongo.asc" || return 1
-        if ! saida_contem "$MONGO_FPR" gpg --show-keys --with-colons "$TMP/mongo.asc"; then
-            aviso "Chave do MongoDB com impressão digital inesperada"; return 1
+    base="https://repo.mongodb.org/apt/ubuntu/dists/$codinome/mongodb-org"
+    # Série mais nova que já tem o pacote mongodb-org para esta versão do Ubuntu
+    # (o repositório cria a pasta da série antes de publicar os pacotes)
+    for s in $(wget -qO- "https://s3.amazonaws.com/repo.mongodb.org?prefix=apt/ubuntu/dists/$codinome/mongodb-org/&delimiter=/" |
+               grep -oE 'mongodb-org/[0-9]+\.[0-9]+/' | cut -d/ -f2 | sort -rV); do
+        if saida_contem '^Package: mongodb-org$' sh -c "wget -qO- '$base/$s/multiverse/binary-amd64/Packages.gz' | gunzip"; then
+            serie=$s; break
         fi
-        install -m 644 "$TMP/mongo.asc" "$chave" || return 1
-    fi
+    done
+    [ -n "$serie" ] || { aviso "Nenhuma série do MongoDB para o Ubuntu $codinome"; return 1; }
+    echo "MongoDB mais novo para $codinome: série $serie"
+    # Chave da série (server-8.0.asc) ou da versão maior (server-9.asc), aceita só
+    # se for ela que assina o repositório
+    baixa "$base/$serie/Release" "$TMP/Release" &&
+    baixa "$base/$serie/Release.gpg" "$TMP/Release.gpg" || return 1
+    for k in "$serie" "${serie%%.*}"; do
+        baixa "https://pgp.mongodb.com/server-$k.asc" "$TMP/mongo.asc" 2>/dev/null || continue
+        gpg --dearmor < "$TMP/mongo.asc" > "$TMP/mongo.gpg" 2>/dev/null &&
+        gpgv --keyring "$TMP/mongo.gpg" "$TMP/Release.gpg" "$TMP/Release" >/dev/null 2>&1 &&
+        { ok=1; break; }
+    done
+    [ -n "$ok" ] || { aviso "Chave do MongoDB $serie não encontrada ou não confere"; return 1; }
+    install -m 644 "$TMP/mongo.asc" "$chave" || return 1
+    rm -f /usr/share/keyrings/mongodb-server-*.asc
     cat > /etc/apt/sources.list.d/mongodb-org.sources <<EOT
 Types: deb
 URIs: https://repo.mongodb.org/apt/ubuntu
-Suites: $codinome/mongodb-org/$MONGO_VER
+Suites: $codinome/mongodb-org/$serie
 Components: multiverse
 Architectures: amd64
 Signed-By: $chave
 EOT
     apt_update && apt_get install mongodb-org || return 1
-    systemctl enable --now mongod || return 1
+    systemctl enable mongod && systemctl restart mongod || return 1
     # Escuta só em 127.0.0.1 (padrão do pacote), sem autenticação: uso local nas aulas
     local i
     for i in $(seq 30); do
@@ -631,14 +678,14 @@ passo "Atualização do sistema"              apt_base
 passo "Remoção de pacotes desnecessários"   apt_remover
 passo "Pacotes do apt (inclui o JDK)"       apt_instalar
 passo "Packet Tracer 9.0.1"                 packet_tracer
-passo "Spring Tools $STS_VER"               spring_tools
+passo "Spring Tools"                        spring_tools
 passo "brModelo"                            brmodelo
 passo "Docker"                              docker_instalar
 passo "Python para IA (/opt/ia)"            python_ia
 passo "Usuário $ALUNO"                      usuario_aluno
 passo "Docker rootless do $ALUNO"           docker_rootless_aluno
 passo "MySQL"                               mysql_config
-passo "MongoDB $MONGO_VER"                        mongodb
+passo "MongoDB"                             mongodb
 passo "Apache (/var/www/html)"              apache_config
 passo "Wallpaper, defaults e login"         visual
 passo "Swap de ${SWAP_GB} GB"               swap

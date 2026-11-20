@@ -129,12 +129,16 @@ ssh -i ~/.ssh/ifsul_labs root@<ip-da-maquina>
 | Área | Programas |
 |---|---|
 | Redes | Cisco Packet Tracer 9.0.1, nmap, traceroute, net-tools |
-| Programação | VS Code, Eclipse, IntelliJ IDEA Community, Android Studio, Spring Tools 5.4, OpenJDK 25, Node.js 26, Git, Postman |
-| Banco de dados | MySQL 8.4, MySQL Workbench, MongoDB 9.0 (com `mongosh`), brModelo |
+| Programação | VS Code, Eclipse, IntelliJ IDEA Community, Android Studio, Spring Tools, OpenJDK, Node.js, Git, Postman |
+| Banco de dados | MySQL, MySQL Workbench, MongoDB (com `mongosh`), brModelo |
 | Web | Apache, PHP |
 | IA / ciência de dados | Python 3.13 com scikit-learn, pandas, matplotlib, seaborn, TensorFlow e PyTorch (comando `python-ia`) |
 | Contêineres | Docker e Docker Compose (cada aluno usa o seu, sem acesso de administrador) |
-| Outros | LibreOffice, VLC, VirtualBox, Arduino IDE 2, Blender, Blockbench |
+| Outros | LibreOffice, VLC, VirtualBox, Arduino IDE, Blender, Blockbench |
+
+Os programas são instalados sempre na **versão mais nova** disponível no momento em
+que o script roda. As exceções são o Packet Tracer (versão fixa) e o Python 3.13 do
+ambiente de IA (o TensorFlow ainda não funciona com versões mais novas do Python).
 
 ### Usuário dos alunos
 
