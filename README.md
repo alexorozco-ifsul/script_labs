@@ -61,8 +61,6 @@ preparar nada antes.
    `identidade-clone` gerando a identidade própria da máquina (veja abaixo).
 2. Execute o script da TI que define **hostname** e **IP**.
 
-Pronto. Não é preciso rodar o script nas máquinas clonadas.
-
 ### O que é a "identidade própria"
 
 Uma máquina clonada sai com dados internos iguais aos da template. O serviço
