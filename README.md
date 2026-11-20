@@ -34,7 +34,7 @@ wget -qO setupifsul.sh https://raw.githubusercontent.com/alexorozco-ifsul/script
 sudo bash setupifsul.sh
 ```
 
-1. O script pede a **senha do root** (duas vezes, para confirmar). É a única pergunta,
+1. O script pede para definir a **senha do root** (duas vezes, para confirmar). É a única pergunta,
    e só acontece aqui: a senha vai junto para todas as máquinas clonadas.
    Para trocá-la depois: `sudo passwd root`.
 2. Depois disso ele roda sozinho. Leva **cerca de 1 hora**, dependendo da rede.
