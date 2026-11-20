@@ -387,6 +387,11 @@ docker_instalar() {
     if ! command -v docker >/dev/null; then
         curl -fsSL https://get.docker.com -o "$TMP/get-docker.sh" && sh "$TMP/get-docker.sh" || return 1
     fi
+    # Docker Compose (comando "docker compose"): o get.docker.com já instala; garante
+    # caso o Docker tenha vindo de outra forma
+    if ! docker compose version >/dev/null 2>&1; then
+        apt_get install docker-compose-plugin || return 1
+    fi
     # AppArmor: o Ubuntu 26.04 já traz /etc/apparmor.d/rootlesskit, que libera user
     # namespaces para /usr/bin/rootlesskit (dono root). NÃO criar outro perfil para o
     # mesmo executável: dois perfis no mesmo caminho fazem o kernel negar a execução

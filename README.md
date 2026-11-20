@@ -133,7 +133,7 @@ ssh -i ~/.ssh/ifsul_labs root@<ip-da-maquina>
 | Banco de dados | MySQL 8.4, MySQL Workbench, MongoDB 9.0 (com `mongosh`), brModelo |
 | Web | Apache, PHP |
 | IA / ciência de dados | Python 3.13 com scikit-learn, pandas, matplotlib, seaborn, TensorFlow e PyTorch (comando `python-ia`) |
-| Contêineres | Docker (cada aluno usa o seu, sem acesso de administrador) |
+| Contêineres | Docker e Docker Compose (cada aluno usa o seu, sem acesso de administrador) |
 | Outros | LibreOffice, VLC, VirtualBox, Arduino IDE 2, Blender, Blockbench |
 
 ### Usuário dos alunos
